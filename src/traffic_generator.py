@@ -12,7 +12,7 @@ class TrafficGenerator(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
         
 class ParetoDistributionTrafficGenerator(TrafficGenerator):
-    def __init__(self, num_devices: int, window_length: int, shape: float = 1.5, scale: float = 1.0) -> None:
+    def __init__(self, num_devices: int, window_length: int, shape: float = 1.5, scale: float = 2500.0) -> None:
         super().__init__(num_devices, window_length)
         self.shape = shape
         self.scale = scale

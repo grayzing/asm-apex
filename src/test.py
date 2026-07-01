@@ -4,6 +4,8 @@ from sector_manager import SectorManager
 from device_manager import DeviceManager
 from radio_channel_model import RadioChannelModel
 from handover_manager import RSRPBasedHandoverManager
+from traffic_generator import TrafficGenerator, ParetoDistributionTrafficGenerator
+from scheduler import QueueAwareProportionalFairPhysicalResourceBlockScheduler
 
 if __name__ == "__main__":
     num_sectors = 3
@@ -34,7 +36,9 @@ if __name__ == "__main__":
     radio_channel_model.update_directional_gain_matrix(geometry_helper, sector_manager, device_manager)
     radio_channel_model.update_received_power_matrix_per_resource_element(sector_manager)
     radio_channel_model.update_sinr_dbm_matrix_per_slot(sector_manager)
-
+    radio_channel_model.update_spectral_efficiency_matrix()
+    traffic_generator = ParetoDistributionTrafficGenerator(num_devices=num_devices, window_length=5)
+    traffic_generator.generate_device_downlink_bits_matrix()
     handover_manager = RSRPBasedHandoverManager(num_sectors=num_sectors, num_devices=num_devices)
     handover_manager.handover(sector_manager, device_manager, radio_channel_model)
     print("Distance Matrix (meters):")
@@ -45,3 +49,9 @@ if __name__ == "__main__":
 
     print("\nRelative Zenith Angle Matrix (degrees):")
     print(geometry_helper.relative_zenith_angle_deg_matrix)
+
+    scheduler = QueueAwareProportionalFairPhysicalResourceBlockScheduler(num_sectors=num_sectors, num_devices=num_devices)
+    scheduler.schedule(sector_manager, radio_channel_model, traffic_generator, handover_manager, device_manager, 0)
+    print(device_manager.device_physical_resource_block_allocation_vector)
+    print(sector_manager.sector_physical_resource_block_utilization)
+

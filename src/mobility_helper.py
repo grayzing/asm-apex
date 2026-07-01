@@ -11,9 +11,9 @@ class MobilityHelper(ABC):
         pass
 
 class RandomWalkMobilityHelper(MobilityHelper):
-    def __init__(self, rng=np.random.default_rng()) -> None:
+    def __init__(self, seed=24) -> None:
         super().__init__()
-        self.rng = rng
+        self.rng = np.random.default_rng(seed=seed)
 
     def step_devices(self, device_manager: DeviceManager) -> None:
         positions = device_manager.get_all_positions().astype(np.float32)
