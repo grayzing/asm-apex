@@ -3,7 +3,7 @@ import numpy as np
 class SectorManager:
     def __init__(self, num_sectors: int):
         self.horizontal_beamwidth_deg_matrix: np.ndarray = np.full((num_sectors, ), 65.0, dtype=np.float16)
-        self.vertical_beamwidth_deg_matrix: np.ndarray = np.full((num_sectors, ), 8.0, dtype=np.float16)
+        self.vertical_beamwidth_deg_matrix: np.ndarray = np.full((num_sectors, ), 65.0, dtype=np.float16)
         self.downtilt_deg_matrix: np.ndarray = np.zeros((num_sectors, ), dtype=np.float16)
         self.front_to_back_ratio_matrix: np.ndarray = np.full((num_sectors, ), 30.0, dtype=np.float16)
         self.max_array_gain_matrix: np.ndarray = np.full((num_sectors, ), 30.0, dtype=np.float16)

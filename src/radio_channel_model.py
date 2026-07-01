@@ -17,6 +17,24 @@ class RadioChannelModel:
         self.received_power_dbm_matrix_per_resource_element: np.ndarray = np.zeros((num_sectors, num_devices), dtype=np.float32)
         self.sinr_dbm_matrix_per_slot: np.ndarray = np.zeros((num_sectors, num_devices), dtype=np.float32)
 
+    def update_directional_gain_matrix(self, geometry_helper: GeometryHelper, sector_manager: SectorManager, device_manager: DeviceManager):
+        vertical_cut_of_radiation_power_pattern_db: np.ndarray = -1 * np.minimum(
+            12*np.square((geometry_helper.relative_zenith_angle_deg_matrix - 90) / sector_manager.vertical_beamwidth_deg_matrix[:, np.newaxis]),
+            30
+        )
+
+        horizontal_cut_of_radiation_power_pattern_db: np.ndarray = -1 * np.minimum(
+            12*np.square(geometry_helper.relative_azimuth_angle_deg_matrix / sector_manager.horizontal_beamwidth_deg_matrix[:, np.newaxis]),
+            sector_manager.front_to_back_ratio_matrix[:, np.newaxis]
+        )
+
+        self.directional_gain_matrix = -1 * np.minimum(
+            -(vertical_cut_of_radiation_power_pattern_db + horizontal_cut_of_radiation_power_pattern_db),
+            sector_manager.front_to_back_ratio_matrix[:, np.newaxis]
+        )
+
+        #print(self.directional_gain_matrix)
+
     def update_path_loss_matrix(self, geometry_helper: GeometryHelper, sector_manager: SectorManager, base_station_manager: BaseStationManager, device_manager: DeviceManager):
         device_positions: np.ndarray = device_manager.get_all_positions() # U x 3
         sector_positions: np.ndarray = base_station_manager.get_all_positions()[sector_manager.sector_parent_base_station_vector] # M x 3
@@ -27,9 +45,9 @@ class RadioChannelModel:
         breakpoint_distance_mask_matrix: np.ndarray = (10 <= geometry_helper.distance_matrix_meters_matrix) & (geometry_helper.distance_matrix_meters_matrix < breakpoint_distance_matrix)
         #print(breakpoint_distance_mask_matrix)
 
-        base_pathloss_line_of_sight_matrix_one: np.ndarray = 28.0 + 22 * np.log10(geometry_helper.distance_matrix_meters_matrix) + 20 * np.log10(sector_manager.center_freq_ghz_matrix[:, np.newaxis] * 1e9)
+        base_pathloss_line_of_sight_matrix_one: np.ndarray = 28.0 + 22 * np.log10(geometry_helper.distance_matrix_meters_matrix) + 20 * np.log10(sector_manager.center_freq_ghz_matrix[:, np.newaxis])
         
-        pathloss_line_of_sight_matrix: np.ndarray = base_pathloss_line_of_sight_matrix_one + breakpoint_distance_mask_matrix * (18 + np.log10(geometry_helper.distance_matrix_meters_matrix) - 9 * np.log10(np.square(breakpoint_distance_matrix) + np.square(sector_positions[:, 2][:, np.newaxis] - device_positions[:, 2][np.newaxis, :])))
+        pathloss_line_of_sight_matrix: np.ndarray = base_pathloss_line_of_sight_matrix_one + breakpoint_distance_mask_matrix * (18 + np.log10(geometry_helper.distance_matrix_meters_matrix) - 9 * np.log10(np.square(breakpoint_distance_matrix) + np.square(sector_positions[:, 2][:, np.newaxis] - 1 - device_positions[:, 2][np.newaxis, :] - 1)))
 
         #print(pathloss_line_of_sight_matrix)
         distance_2d_matrix: np.ndarray = cdist(sector_positions[:, :2], device_positions[:, :2]).astype(np.float32) + 1e-9
@@ -46,5 +64,8 @@ class RadioChannelModel:
         self.path_loss_matrix = np.where(
             is_line_of_sight_mask_matrix,
             pathloss_line_of_sight_matrix,
-            13.54 + 39.08 * np.log10(geometry_helper.distance_matrix_meters_matrix) + 20 * np.log10(sector_manager.center_freq_ghz_matrix[:, np.newaxis] * 1e9) - 9.5 * np.log10(np.square(breakpoint_distance_matrix) + np.square(sector_positions[:, 2][:, np.newaxis] - device_positions[:, 2][np.newaxis, :]))
+            13.54 + 39.08 * np.log10(geometry_helper.distance_matrix_meters_matrix) + 20 * np.log10(sector_manager.center_freq_ghz_matrix[:, np.newaxis]) - 9.5 * np.log10(np.square(breakpoint_distance_matrix) + np.square(sector_positions[:, 2][:, np.newaxis] - 1 - device_positions[:, 2][np.newaxis, :] - 1))
         )
+
+    def update_received_power_matrix_per_resource_element(self, sector_manager: SectorManager):
+        self.received_power_dbm_matrix_per_resource_element = sector_manager.tx_power_dbm_matrix[:, np.newaxis] - self.path_loss_matrix - 10 * np.log10(288) + self.directional_gain_matrix

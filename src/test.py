@@ -18,7 +18,7 @@ if __name__ == "__main__":
     device_manager = DeviceManager(num_devices=num_devices)
     device_manager.device_position_matrix[0] = [560.0, 56.0, 1.5]   # Device 1
     device_manager.device_position_matrix[1] = [210.0, -140.0, 1.5]  # Device 2
-    device_manager.device_position_matrix[2] = [500.0, 250.0, 1.5]   # Device 3
+    device_manager.device_position_matrix[2] = [50.0, 50.0, 1.5]   # Device 3
     device_manager.device_position_matrix[3] = [280.0, -165.0, 1.5]  # Device 4
     device_manager.device_position_matrix[4] = [120.0, 180.0, 1.5]
 
@@ -30,7 +30,8 @@ if __name__ == "__main__":
 
     radio_channel_model = RadioChannelModel(num_sectors=num_sectors, num_devices=num_devices)
     radio_channel_model.update_path_loss_matrix(geometry_helper, sector_manager, base_station_manager, device_manager)
-
+    radio_channel_model.update_directional_gain_matrix(geometry_helper, sector_manager, device_manager)
+    radio_channel_model.update_received_power_matrix_per_resource_element(sector_manager)
     print("Distance Matrix (meters):")
     print(geometry_helper.distance_matrix_meters_matrix)
 
