@@ -32,6 +32,7 @@ if __name__ == "__main__":
     radio_channel_model.update_path_loss_matrix(geometry_helper, sector_manager, base_station_manager, device_manager)
     radio_channel_model.update_directional_gain_matrix(geometry_helper, sector_manager, device_manager)
     radio_channel_model.update_received_power_matrix_per_resource_element(sector_manager)
+    radio_channel_model.update_sinr_dbm_matrix_per_slot(sector_manager)
     print("Distance Matrix (meters):")
     print(geometry_helper.distance_matrix_meters_matrix)
 

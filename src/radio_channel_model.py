@@ -8,7 +8,7 @@ from geometry_helper import GeometryHelper
 from scipy.spatial.distance import cdist
 
 class RadioChannelModel:
-    def __init__(self, num_sectors: int, num_devices: int) -> None:
+    def __init__(self, num_sectors: int, num_devices: int, seed=24) -> None:
         self.num_sectors = num_sectors
         self.num_devices = num_devices
 
@@ -16,6 +16,8 @@ class RadioChannelModel:
         self.directional_gain_matrix: np.ndarray = np.zeros((num_sectors, num_devices), dtype=np.float32)
         self.received_power_dbm_matrix_per_resource_element: np.ndarray = np.zeros((num_sectors, num_devices), dtype=np.float32)
         self.sinr_dbm_matrix_per_slot: np.ndarray = np.zeros((num_sectors, num_devices), dtype=np.float32)
+
+        self.rng = np.random.default_rng(seed)
 
     def update_directional_gain_matrix(self, geometry_helper: GeometryHelper, sector_manager: SectorManager, device_manager: DeviceManager):
         vertical_cut_of_radiation_power_pattern_db: np.ndarray = -1 * np.minimum(
@@ -47,16 +49,16 @@ class RadioChannelModel:
 
         base_pathloss_line_of_sight_matrix_one: np.ndarray = 28.0 + 22 * np.log10(geometry_helper.distance_matrix_meters_matrix) + 20 * np.log10(sector_manager.center_freq_ghz_matrix[:, np.newaxis])
         
-        pathloss_line_of_sight_matrix: np.ndarray = base_pathloss_line_of_sight_matrix_one + breakpoint_distance_mask_matrix * (18 + np.log10(geometry_helper.distance_matrix_meters_matrix) - 9 * np.log10(np.square(breakpoint_distance_matrix) + np.square(sector_positions[:, 2][:, np.newaxis] - 1 - device_positions[:, 2][np.newaxis, :] - 1)))
+        pathloss_line_of_sight_matrix: np.ndarray = base_pathloss_line_of_sight_matrix_one + breakpoint_distance_mask_matrix * (18 + np.log10(geometry_helper.distance_matrix_meters_matrix) - 9 * np.log10(np.square(breakpoint_distance_matrix) + np.square(sector_positions[:, 2][:, np.newaxis] - 1 - device_positions[:, 2][np.newaxis, :] - 1))) + self.rng.normal(0, 4.4, size=(self.num_sectors, self.num_devices)).astype(np.float32)
 
         #print(pathloss_line_of_sight_matrix)
         distance_2d_matrix: np.ndarray = cdist(sector_positions[:, :2], device_positions[:, :2]).astype(np.float32) + 1e-9
-        distance_2d_out_matrix: np.ndarray = distance_2d_matrix - np.maximum(np.random.uniform(0,25), np.random.uniform(0,25)) # 3GPP abstraction
+        distance_2d_out_matrix: np.ndarray = distance_2d_matrix - np.maximum(self.rng.uniform(0,25), self.rng.uniform(0,25)) # 3GPP abstraction
 
         is_line_of_sight_mask_matrix: np.ndarray = np.where(
             distance_2d_out_matrix <= 18,
             True,
-            np.random.uniform(0,1) < (18 / distance_2d_out_matrix) + np.exp(-distance_2d_out_matrix / 63) * (1 - 18 / distance_2d_out_matrix)
+            self.rng.uniform(0,1) < (18 / distance_2d_out_matrix) + np.exp(-distance_2d_out_matrix / 63) * (1 - 18 / distance_2d_out_matrix)
         ) # Omit the C term because the heights of the UEs are always at 1.5m.
         
         #print(is_line_of_sight_mask_matrix)
@@ -64,8 +66,38 @@ class RadioChannelModel:
         self.path_loss_matrix = np.where(
             is_line_of_sight_mask_matrix,
             pathloss_line_of_sight_matrix,
-            13.54 + 39.08 * np.log10(geometry_helper.distance_matrix_meters_matrix) + 20 * np.log10(sector_manager.center_freq_ghz_matrix[:, np.newaxis]) - 9.5 * np.log10(np.square(breakpoint_distance_matrix) + np.square(sector_positions[:, 2][:, np.newaxis] - 1 - device_positions[:, 2][np.newaxis, :] - 1))
-        )
+            13.54 + 39.08 * np.log10(geometry_helper.distance_matrix_meters_matrix) + 20 * np.log10(sector_manager.center_freq_ghz_matrix[:, np.newaxis]) - 9.5 * np.log10(np.square(breakpoint_distance_matrix) + np.square(sector_positions[:, 2][:, np.newaxis] - 1 - device_positions[:, 2][np.newaxis, :] - 1)) + self.rng.normal(0, 6, size=(self.num_sectors, self.num_devices)).astype(np.float32)
+        ) 
 
     def update_received_power_matrix_per_resource_element(self, sector_manager: SectorManager):
-        self.received_power_dbm_matrix_per_resource_element = sector_manager.tx_power_dbm_matrix[:, np.newaxis] - self.path_loss_matrix - 10 * np.log10(288) + self.directional_gain_matrix
+        self.received_power_dbm_matrix_per_resource_element = sector_manager.tx_power_dbm_matrix[:, np.newaxis] - self.path_loss_matrix + self.directional_gain_matrix - 10 * np.log10(288)
+
+    def update_sinr_dbm_matrix_per_slot(self, sector_manager: SectorManager):
+        load_calculation_matrix: np.ndarray = self.rng.binomial(
+            n=1,
+            p=sector_manager.sector_physical_resource_block_utilization[:, np.newaxis],
+            size=(self.num_sectors, self.num_devices)
+        )
+
+        received_power_mw_matrix = 10 ** (self.received_power_dbm_matrix_per_resource_element / 10)
+
+        active_interference_mw = load_calculation_matrix * received_power_mw_matrix
+
+        total_interference_mw = np.sum(active_interference_mw, axis=0, keepdims=True) # Result: 1 x Devices
+
+        bandwidth_hz = sector_manager.bandwidth_mhz_matrix[:, np.newaxis] * 1e6
+        thermal_noise_dbm = -174.0 + 10 * np.log10(bandwidth_hz) + 9.0 # Noise Figure = 9
+        thermal_noise_mw = 10 ** (thermal_noise_dbm / 10)
+        
+        thermal_noise_mw_row = np.mean(thermal_noise_mw, axis=0, keepdims=True) 
+
+        noise_denominator_mw = total_interference_mw + thermal_noise_mw_row
+        noise_denominator_dbm = 10 * np.log10(noise_denominator_mw) # Shape: 1 x Devices
+
+        self.sinr_dbm_matrix_per_slot = np.minimum(35.0, self.received_power_dbm_matrix_per_resource_element - noise_denominator_dbm)
+
+        np.set_printoptions(precision=4, suppress=True)
+        print(self.received_power_dbm_matrix_per_resource_element)
+        print("Corrected SINR Matrix:\n", self.sinr_dbm_matrix_per_slot)
+
+        
