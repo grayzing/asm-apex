@@ -94,27 +94,20 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
                 transmitted_bits = min(max_bits_capacity, queue_remaining)
                 
                 actual_transmitted_bits_matrix[sector_idx, dev_idx] = transmitted_bits
-                
-                # Apply structural array adjustments locally to protect multi-sector cross allocation metrics
+
                 current_queues[dev_idx] -= transmitted_bits
 
-        # 7. Sync master buffer drops back inside Traffic Generator records
         total_tx_bits_per_device = np.sum(actual_transmitted_bits_matrix, axis=0)
         traffic_generator.device_downlink_bits_matrix[:, step] -= total_tx_bits_per_device
 
-        # 8. Accumulate history records into Exponential Moving Average (EMA) targets
         self.historical_throughput_matrix *= self.ema_beta
         self.historical_throughput_matrix[:, 0] += (1 - self.ema_beta) * total_tx_bits_per_device
         self.historical_throughput_matrix = np.maximum(self.historical_throughput_matrix, 1e-3)
 
-        # 9. DYNAMIC UPDATE: Recompute PRB utilization ratios inside Sector Manager constraints
-        # Used PRBs divided by the total PRBs capacity tells us exactly how busy the radio frequency slice is
         allocated_prbs_per_sector = np.sum(prb_allocation_matrix, axis=1)
         
-        # Prevent runtime division errors on unconfigured zero bandwidth elements
         safe_total_prbs = np.where(total_prbs_per_sector == 0, 1, total_prbs_per_sector)
         
-        # Update in-place so the upcoming call to `update_sinr_dbm_matrix_per_slot` uses exact load counts
-        sector_manager.sector_physical_resource_block_utilization = (allocated_prbs_per_sector / safe_total_prbs).astype(np.float32)
+        sector_manager.sector_physical_resource_block_utilization = np.maximum(0.05, (allocated_prbs_per_sector / safe_total_prbs)).astype(np.float32)
         device_manager.device_physical_resource_block_allocation_vector = np.sum(prb_allocation_matrix, axis=0).astype(np.int16)
         return prb_allocation_matrix, total_tx_bits_per_device

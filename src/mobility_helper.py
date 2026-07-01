@@ -1,6 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
-from .device_manager import DeviceManager
+from device_manager import DeviceManager
 
 class MobilityHelper(ABC):
     def __init__(self) -> None:
