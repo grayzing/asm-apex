@@ -96,8 +96,4 @@ class RadioChannelModel:
 
         self.sinr_dbm_matrix_per_slot = np.minimum(35.0, self.received_power_dbm_matrix_per_resource_element - noise_denominator_dbm)
 
-        np.set_printoptions(precision=4, suppress=True)
-        print(self.received_power_dbm_matrix_per_resource_element)
-        print("Corrected SINR Matrix:\n", self.sinr_dbm_matrix_per_slot)
-
         

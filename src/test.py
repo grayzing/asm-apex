@@ -3,6 +3,7 @@ from base_station_manager import BaseStationManager
 from sector_manager import SectorManager
 from device_manager import DeviceManager
 from radio_channel_model import RadioChannelModel
+from handover_manager import RSRPBasedHandoverManager
 
 if __name__ == "__main__":
     num_sectors = 3
@@ -33,6 +34,9 @@ if __name__ == "__main__":
     radio_channel_model.update_directional_gain_matrix(geometry_helper, sector_manager, device_manager)
     radio_channel_model.update_received_power_matrix_per_resource_element(sector_manager)
     radio_channel_model.update_sinr_dbm_matrix_per_slot(sector_manager)
+
+    handover_manager = RSRPBasedHandoverManager(num_sectors=num_sectors, num_devices=num_devices)
+    handover_manager.handover(sector_manager, device_manager, radio_channel_model)
     print("Distance Matrix (meters):")
     print(geometry_helper.distance_matrix_meters_matrix)
 
