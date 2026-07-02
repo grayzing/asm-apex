@@ -63,6 +63,25 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
             if not np.any(associated_device_mask):
                 continue
 
+            attached_device_indices = np.where(associated_device_mask)[0]
+
+            # stronger fairness: give one PRB to each attached device first (if they have queue and any positive rate)
+            for dev_idx in attached_device_indices:
+                if max_available_prbs <= 0:
+                    break
+
+                queue_remaining = current_queues[dev_idx]
+                bits_per_single_prb = bits_per_prb_matrix[sector_idx, dev_idx]
+                if queue_remaining <= 0 or bits_per_single_prb <= 0:
+                    continue
+
+                prb_allocation_matrix[sector_idx, dev_idx] = 1
+                max_available_prbs -= 1
+
+                transmitted_bits = min(queue_remaining, bits_per_single_prb)
+                actual_transmitted_bits_matrix[sector_idx, dev_idx] += transmitted_bits
+                current_queues[dev_idx] -= transmitted_bits
+
             # Isolate metric rows strictly belonging to valid attached devices, mask independent paths to -1.0
             sector_metrics = np.where(associated_device_mask, qapf_metric_matrix[sector_idx, :], -1.0)
             
@@ -86,14 +105,14 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
                 prbs_assigned = min(prbs_needed, max_available_prbs)
 
                 # Track systemic hardware distribution changes
-                prb_allocation_matrix[sector_idx, dev_idx] = prbs_assigned
+                prb_allocation_matrix[sector_idx, dev_idx] += prbs_assigned
                 max_available_prbs -= prbs_assigned
 
                 # Process buffer data drops
                 max_bits_capacity = prbs_assigned * bits_per_single_prb
                 transmitted_bits = min(max_bits_capacity, queue_remaining)
                 
-                actual_transmitted_bits_matrix[sector_idx, dev_idx] = transmitted_bits
+                actual_transmitted_bits_matrix[sector_idx, dev_idx] += transmitted_bits
 
                 current_queues[dev_idx] -= transmitted_bits
 

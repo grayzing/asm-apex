@@ -1,3 +1,7 @@
+import time
+
+import numpy as np
+
 from geometry_helper import GeometryHelper
 from base_station_manager import BaseStationManager
 from sector_manager import SectorManager
@@ -8,8 +12,6 @@ from mobility_helper import RandomWalkMobilityHelper
 from network_topology_helper import HexagonalNetworkTopologyHelperWithRandomDevicePlacements
 from scheduler import QueueAwareProportionalFairPhysicalResourceBlockScheduler
 from traffic_generator import TrafficGenerator, ParetoDistributionTrafficGenerator
-
-import time
 
 class Simulator:
     def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
@@ -33,6 +35,9 @@ class Simulator:
         self.scheduler = QueueAwareProportionalFairPhysicalResourceBlockScheduler(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
 
     def run_simulation(self):
+        total_transmitted_bits_per_device = np.zeros(self.num_devices, dtype=np.float64)
+        total_prbs_allocated_per_device = np.zeros(self.num_devices, dtype=np.int64)
+
         start_time = time.time()
         for step in range(0, self.simulation_length_ms):
             if step % 10 == 0:
@@ -48,19 +53,39 @@ class Simulator:
             self.radio_channel_model.update_spectral_efficiency_matrix()
 
             self.handover_manager.handover(self.sector_manager, self.device_manager, self.radio_channel_model)
-            self.scheduler.schedule(self.sector_manager, self.radio_channel_model, self.traffic_generator, self.handover_manager, self.device_manager, step)
+            prb_allocation_matrix, transmitted_bits_per_device = self.scheduler.schedule(
+                self.sector_manager,
+                self.radio_channel_model,
+                self.traffic_generator,
+                self.handover_manager,
+                self.device_manager,
+                step,
+            )
 
-            print(f"Step {step + 1}/{self.simulation_length_ms} completed.")
-            print(f"Device Physical Resource Block Allocation Vector: {self.device_manager.device_physical_resource_block_allocation_vector}")
-            print(f"Sector Physical Resource Block Utilization: {self.sector_manager.sector_physical_resource_block_utilization}")
+            total_transmitted_bits_per_device += transmitted_bits_per_device
+            total_prbs_allocated_per_device += np.sum(prb_allocation_matrix, axis=0)
 
         end_time = time.time()
-        print(f"Simulation completed in {end_time - start_time:.2f} seconds.")
+        wall_clock_seconds = end_time - start_time
+        simulated_seconds = self.simulation_length_ms / 1000.0
+        device_throughput_mbps = total_transmitted_bits_per_device / simulated_seconds / 1e6
+        total_throughput_mbps = np.sum(total_transmitted_bits_per_device) / simulated_seconds / 1e6
+        average_throughput_mbps = np.mean(device_throughput_mbps)
+        percentile_10_throughput_mbps = np.percentile(device_throughput_mbps, 10)
+
+        print(f"Simulation completed in {wall_clock_seconds:.2f} seconds wall clock.")
+        print(f"Simulated duration: {simulated_seconds:.3f} seconds.")
+        print(f"Total throughput: {total_throughput_mbps:.3f} Mbps")
+        print(f"Average per-device throughput: {average_throughput_mbps:.3f} Mbps")
+        print(f"10th percentile per-device throughput: {percentile_10_throughput_mbps:.3f} Mbps")
+        print(f"Total PRBs allocated across simulation: {np.sum(total_prbs_allocated_per_device)}")
+        print(f"Average PRBs allocated per device: {np.mean(total_prbs_allocated_per_device):.2f}")
+        print(f"Median PRBs allocated per device: {np.median(total_prbs_allocated_per_device):.2f}")
 
 if __name__ == "__main__":
-    num_base_stations = 19
-    num_devices = 50
-    simulation_length_ms = 10
+    num_base_stations = 61
+    num_devices = 1000
+    simulation_length_ms = 2500
 
     simulator = Simulator(num_base_stations=num_base_stations, num_devices=num_devices, simulation_length_ms=simulation_length_ms)
     simulator.run_simulation()

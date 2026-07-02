@@ -91,20 +91,28 @@ class RadioChannelModel:
         )
 
         received_power_mw_matrix = 10 ** (self.received_power_dbm_matrix_per_resource_element / 10)
-
         active_interference_mw = load_calculation_matrix * received_power_mw_matrix
 
-        total_interference_mw = np.sum(active_interference_mw, axis=0, keepdims=True) # Result: 1 x Devices
+        center_freqs = sector_manager.center_freq_ghz_matrix
+        same_band_mask = np.isclose(
+            center_freqs[:, np.newaxis],
+            center_freqs[np.newaxis, :],
+            atol=0.025,
+        )
+        np.fill_diagonal(same_band_mask, False)
+
+        interference_mw_matrix = same_band_mask.astype(np.float32) @ active_interference_mw
 
         bandwidth_hz = sector_manager.bandwidth_mhz_matrix[:, np.newaxis] * 1e6
-        thermal_noise_dbm = -174.0 + 10 * np.log10(bandwidth_hz) + 9.0 # Noise Figure = 9
+        thermal_noise_dbm = -174.0 + 10 * np.log10(bandwidth_hz) + 9.0  # Noise Figure = 9
         thermal_noise_mw = 10 ** (thermal_noise_dbm / 10)
-        
-        thermal_noise_mw_row = np.mean(thermal_noise_mw, axis=0, keepdims=True) 
 
-        noise_denominator_mw = total_interference_mw + thermal_noise_mw_row
-        noise_denominator_dbm = 10 * np.log10(noise_denominator_mw) # Shape: 1 x Devices
+        noise_denominator_mw = interference_mw_matrix + thermal_noise_mw
+        noise_denominator_dbm = 10 * np.log10(noise_denominator_mw)
 
-        self.sinr_dbm_matrix_per_slot = np.minimum(35.0, self.received_power_dbm_matrix_per_resource_element - noise_denominator_dbm)
+        self.sinr_dbm_matrix_per_slot = np.minimum(
+            35.0,
+            self.received_power_dbm_matrix_per_resource_element - noise_denominator_dbm,
+        )
 
         

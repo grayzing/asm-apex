@@ -18,6 +18,10 @@ class NetworkTopologyHelper(ABC):
             num_sectors_per_base_station,
         )
 
+        reuse_frequencies_ghz = np.array([6.0, 6.1, 6.2], dtype=np.float32)
+        base_station_center_freqs = reuse_frequencies_ghz[np.arange(num_base_stations) % reuse_frequencies_ghz.shape[0]]
+        self.sector_manager.center_freq_ghz_matrix = np.repeat(base_station_center_freqs, num_sectors_per_base_station)
+
         self.num_sectors = num_sectors_per_base_station * num_base_stations
 
     @abstractmethod
