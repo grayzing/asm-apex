@@ -12,7 +12,7 @@ from traffic_generator import TrafficGenerator, ParetoDistributionTrafficGenerat
 import time
 
 class Simulator:
-    def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 722026) -> None:
+    def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
         self.num_base_stations = num_base_stations
         self.num_devices = num_devices
         self.simulation_length_ms = simulation_length_ms
@@ -50,13 +50,17 @@ class Simulator:
             self.handover_manager.handover(self.sector_manager, self.device_manager, self.radio_channel_model)
             self.scheduler.schedule(self.sector_manager, self.radio_channel_model, self.traffic_generator, self.handover_manager, self.device_manager, step)
 
+            print(f"Step {step + 1}/{self.simulation_length_ms} completed.")
+            print(f"Device Physical Resource Block Allocation Vector: {self.device_manager.device_physical_resource_block_allocation_vector}")
+            print(f"Sector Physical Resource Block Utilization: {self.sector_manager.sector_physical_resource_block_utilization}")
+
         end_time = time.time()
         print(f"Simulation completed in {end_time - start_time:.2f} seconds.")
 
 if __name__ == "__main__":
-    num_base_stations = 39
-    num_devices = 500
-    simulation_length_ms = 2500 # 2.5 seconds
+    num_base_stations = 19
+    num_devices = 50
+    simulation_length_ms = 10
 
     simulator = Simulator(num_base_stations=num_base_stations, num_devices=num_devices, simulation_length_ms=simulation_length_ms)
     simulator.run_simulation()

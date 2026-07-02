@@ -13,6 +13,11 @@ class NetworkTopologyHelper(ABC):
         self.sector_manager = SectorManager(num_sectors=num_sectors_per_base_station * num_base_stations)
         self.device_manager = DeviceManager(num_devices=num_devices)
 
+        self.sector_manager.sector_parent_base_station_vector = np.repeat(
+            np.arange(num_base_stations, dtype=np.int16),
+            num_sectors_per_base_station,
+        )
+
         self.num_sectors = num_sectors_per_base_station * num_base_stations
 
     @abstractmethod
