@@ -41,6 +41,8 @@ if __name__ == "__main__":
     traffic_generator.generate_device_downlink_bits_matrix()
     handover_manager = RSRPBasedHandoverManager(num_sectors=num_sectors, num_devices=num_devices)
     handover_manager.handover(sector_manager, device_manager, radio_channel_model)
+    print("Directional Gain Matrix (dB):")
+    print(radio_channel_model.directional_gain_matrix)
     print("Distance Matrix (meters):")
     print(geometry_helper.distance_matrix_meters_matrix)
 

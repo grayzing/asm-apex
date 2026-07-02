@@ -28,9 +28,10 @@ class NetworkTopologyHelper(ABC):
         self.generate_device_positions()
 
 class HexagonalNetworkTopologyHelperWithRandomDevicePlacements(NetworkTopologyHelper):
-    def __init__(self, num_base_stations: int, num_sectors_per_base_station: int, num_devices: int, inter_site_distance_m: float = 500.0) -> None:
+    def __init__(self, num_base_stations: int, num_sectors_per_base_station: int, num_devices: int, inter_site_distance_m: float = 500.0, seed: int = 24) -> None:
         super().__init__(num_base_stations=num_base_stations, num_sectors_per_base_station=num_sectors_per_base_station, num_devices=num_devices)
         self.inter_site_distance_m = inter_site_distance_m
+        self.rng = np.random.default_rng(seed)
 
     def generate_base_station_positions(self):
         # Generate hexagonal grid positions for base stations
@@ -50,7 +51,7 @@ class HexagonalNetworkTopologyHelperWithRandomDevicePlacements(NetworkTopologyHe
         y_min = np.min(self.base_station_manager.base_station_position_matrix[:, 1])
         y_max = np.max(self.base_station_manager.base_station_position_matrix[:, 1]) + self.inter_site_distance_m
 
-        device_positions = np.random.uniform(low=[x_min, y_min], high=[x_max, y_max], size=(self.device_manager.device_position_matrix.shape[0], 2))
+        device_positions = self.rng.uniform(low=[x_min, y_min], high=[x_max, y_max], size=(self.device_manager.device_position_matrix.shape[0], 2))
         device_positions = np.hstack((device_positions, np.zeros((device_positions.shape[0], 1))))  # Assuming z=0 for ground level
         self.device_manager.device_position_matrix = device_positions.astype(np.float16)
 

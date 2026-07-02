@@ -31,18 +31,18 @@ class RadioChannelModel:
         self.spectral_efficiency_matrix = allocated_spectral_efficiency
 
     def update_directional_gain_matrix(self, geometry_helper: GeometryHelper, sector_manager: SectorManager, device_manager: DeviceManager):
-        vertical_cut_of_radiation_power_pattern_db: np.ndarray = -1 * np.minimum(
-            12*np.square((geometry_helper.relative_zenith_angle_deg_matrix - 90) / sector_manager.vertical_beamwidth_deg_matrix[:, np.newaxis]),
+        vertical_attenuation_db: np.ndarray = np.minimum(
+            12*np.square(geometry_helper.relative_zenith_angle_deg_matrix / sector_manager.vertical_beamwidth_deg_matrix[:, np.newaxis]),
             30
         )
 
-        horizontal_cut_of_radiation_power_pattern_db: np.ndarray = -1 * np.minimum(
+        horizontal_attenuation_db: np.ndarray = np.minimum(
             12*np.square(geometry_helper.relative_azimuth_angle_deg_matrix / sector_manager.horizontal_beamwidth_deg_matrix[:, np.newaxis]),
             sector_manager.front_to_back_ratio_matrix[:, np.newaxis]
         )
 
         self.directional_gain_matrix = -1 * np.minimum(
-            -(vertical_cut_of_radiation_power_pattern_db + horizontal_cut_of_radiation_power_pattern_db),
+            vertical_attenuation_db + horizontal_attenuation_db,
             sector_manager.front_to_back_ratio_matrix[:, np.newaxis]
         )
 
