@@ -3,7 +3,7 @@ from .device_manager import DeviceManager
 from .geometry_helper import GeometryHelper
 from .handover_manager import HandoverManager, RSRPBasedHandoverManager
 from .mobility_helper import MobilityHelper, RandomWalkMobilityHelper
-from .network_topology_helper import NetworkTopologyHelper, HexagonalNetworkTopologyHelperWithRandomDevicePlacements
+from .network_topology_helper import NetworkTopologyHelper, HexagonalNetworkTopologyHelperWithRandomDevicePlacements, HeterogenousHexagonalNetworkTopologyHelperWithRandomDevicePlacements
 from .radio_channel_model import RadioChannelModel
 from .scheduler import PhysicalResourceBlockScheduler, QueueAwareProportionalFairPhysicalResourceBlockScheduler
 from .sector_manager import SectorManager

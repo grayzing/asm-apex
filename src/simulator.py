@@ -9,7 +9,7 @@ from device_manager import DeviceManager
 from radio_channel_model import RadioChannelModel
 from handover_manager import RSRPBasedHandoverManager
 from mobility_helper import RandomWalkMobilityHelper
-from network_topology_helper import HexagonalNetworkTopologyHelperWithRandomDevicePlacements
+from network_topology_helper import HexagonalNetworkTopologyHelperWithRandomDevicePlacements, HeterogenousHexagonalNetworkTopologyHelperWithRandomDevicePlacements
 from scheduler import QueueAwareProportionalFairPhysicalResourceBlockScheduler
 from traffic_generator import TrafficGenerator, ParetoDistributionTrafficGenerator
 
@@ -19,7 +19,7 @@ class Simulator:
         self.num_devices = num_devices
         self.simulation_length_ms = simulation_length_ms
 
-        self.network_topology_helper = HexagonalNetworkTopologyHelperWithRandomDevicePlacements(num_base_stations=self.num_base_stations, num_sectors_per_base_station=3, num_devices=self.num_devices, seed=seed)
+        self.network_topology_helper = HeterogenousHexagonalNetworkTopologyHelperWithRandomDevicePlacements(num_base_stations=self.num_base_stations, num_sectors_per_base_station=3, num_devices=self.num_devices, seed=seed)
         self.network_topology_helper.intialize_network_topology()
 
         self.base_station_manager = self.network_topology_helper.base_station_manager
@@ -83,9 +83,9 @@ class Simulator:
         print(f"Median PRBs allocated per device: {np.median(total_prbs_allocated_per_device):.2f}")
 
 if __name__ == "__main__":
-    num_base_stations = 61
-    num_devices = 1000
-    simulation_length_ms = 2500
+    num_base_stations = 19
+    num_devices = 500
+    simulation_length_ms = 500
 
     simulator = Simulator(num_base_stations=num_base_stations, num_devices=num_devices, simulation_length_ms=simulation_length_ms)
     simulator.run_simulation()

@@ -2,6 +2,8 @@ import numpy as np
 
 class SectorManager:
     def __init__(self, num_sectors: int):
+        self.num_sectors = num_sectors
+
         self.horizontal_beamwidth_deg_matrix: np.ndarray = np.full((num_sectors, ), 65.0, dtype=np.float16)
         self.vertical_beamwidth_deg_matrix: np.ndarray = np.full((num_sectors, ), 65.0, dtype=np.float16)
         self.downtilt_deg_matrix: np.ndarray = np.zeros((num_sectors, ), dtype=np.float16)
