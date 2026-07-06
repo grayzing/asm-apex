@@ -11,7 +11,7 @@ from handover_manager import RSRPBasedHandoverManager
 from mobility_helper import RandomWalkMobilityHelper
 from network_topology_helper import HexagonalNetworkTopologyHelperWithRandomDevicePlacements, HeterogenousHexagonalNetworkTopologyHelperWithRandomDevicePlacements
 from scheduler import QueueAwareProportionalFairPhysicalResourceBlockScheduler
-from traffic_generator import TrafficGenerator, ParetoDistributionTrafficGenerator
+from traffic_generator import TrafficGenerator, BurstyTrafficGenerator
 
 class Simulator:
     def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
@@ -29,7 +29,7 @@ class Simulator:
         self.radio_channel_model = RadioChannelModel(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices, seed=seed)
         self.handover_manager = RSRPBasedHandoverManager(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
         self.mobility_helper = RandomWalkMobilityHelper()
-        self.traffic_generator = ParetoDistributionTrafficGenerator(num_devices=self.num_devices, window_length=self.simulation_length_ms, seed=seed)
+        self.traffic_generator = BurstyTrafficGenerator(num_devices=self.num_devices, window_length=self.simulation_length_ms, seed=seed)
         self.traffic_generator.generate_device_downlink_bits_matrix()
 
         self.scheduler = QueueAwareProportionalFairPhysicalResourceBlockScheduler(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
