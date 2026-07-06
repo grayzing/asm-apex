@@ -38,6 +38,6 @@ class RSRPBasedHandoverManager(HandoverManager):
             # Prevent ALL sectors from being switched off.
             # So turn on the center
             modified_radio_channel_model[0:3] = radio_channel_model.received_power_dbm_matrix_per_resource_element[0:3]
-        best_sector_indices: np.ndarray = np.nanargmax(radio_channel_model.received_power_dbm_matrix_per_resource_element, axis=0) 
+        best_sector_indices: np.ndarray = np.nanargmax(modified_radio_channel_model, axis=0) 
         self.sector_device_association_matrix = np.zeros((self.num_sectors, self.num_devices), dtype=np.int8)
         self.sector_device_association_matrix[best_sector_indices, np.arange(self.num_devices)] = 1

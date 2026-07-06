@@ -27,6 +27,7 @@ class Simulator:
         self.base_station_manager = self.network_topology_helper.base_station_manager
         self.sector_manager = self.network_topology_helper.sector_manager
         self.device_manager = self.network_topology_helper.device_manager
+        print(self.network_topology_helper.num_sectors)
         self.geometry_helper = GeometryHelper(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
         self.radio_channel_model = RadioChannelModel(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices, seed=seed)
         self.handover_manager = RSRPBasedHandoverManager(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
@@ -40,8 +41,8 @@ class Simulator:
         # Put a random sector to sleep
         sector_sleep_id = self.rng.integers(0, self.num_base_stations*3)
         random_sleep_mode = 1
-        print(f"Sector sleep id: {sector_sleep_id}")
-        print(f"Random sleep mode: {random_sleep_mode}")
+        #print(f"Sector sleep id: {sector_sleep_id}")
+        #print(f"Random sleep mode: {random_sleep_mode}")
         self.sleep_mode_manager.set_sleep_mode(
             sector_id=sector_sleep_id,
             sleep_mode=random_sleep_mode,
@@ -54,18 +55,18 @@ class Simulator:
 
         start_time = time.time()
         for step in range(0, self.simulation_length_ms):
+            #self.set_random_sleep_mode()
             if step % 10 == 0:
                 self.mobility_helper.step_devices(self.device_manager)
-                self.geometry_helper.update_distance_matrix(self.device_manager, self.sector_manager, self.base_station_manager)
-                self.geometry_helper.update_relative_azimuth_angle_deg_matrix(self.device_manager, self.sector_manager, self.base_station_manager)
-                self.geometry_helper.update_relative_zenith_angle_deg_matrix(self.device_manager, self.sector_manager, self.base_station_manager)
+                self.geometry_helper.update_spatial_geometry(self.device_manager,self.sector_manager,self.base_station_manager)
 
             self.radio_channel_model.update_path_loss_matrix(self.geometry_helper, self.sector_manager, self.base_station_manager, self.device_manager)
             self.radio_channel_model.update_directional_gain_matrix(self.geometry_helper, self.sector_manager, self.device_manager)
             self.radio_channel_model.update_received_power_matrix_per_resource_element(self.sector_manager)
             self.radio_channel_model.update_sinr_dbm_matrix_per_slot(self.sector_manager)
-            self.radio_channel_model.update_spectral_efficiency_matrix()
+            self.radio_channel_model.update_spectral_efficiency_matrix(self.sleep_mode_manager)
 
+            self.sleep_mode_manager.tick()
             self.handover_manager.handover(self.sector_manager, self.device_manager, self.radio_channel_model, self.sleep_mode_manager)
 
             prb_allocation_matrix, transmitted_bits_per_device = self.scheduler.schedule(
@@ -77,8 +78,6 @@ class Simulator:
                 self.sleep_mode_manager,
                 step,
             )
-
-            self.sleep_mode_manager.tick()
 
             total_transmitted_bits_per_device += transmitted_bits_per_device
             total_prbs_allocated_per_device += np.sum(prb_allocation_matrix, axis=0)
@@ -101,9 +100,9 @@ class Simulator:
         print(f"Median PRBs allocated per device: {np.median(total_prbs_allocated_per_device):.2f}")
 
 if __name__ == "__main__":
-    num_base_stations = 7
-    num_devices = 120
-    simulation_length_ms = 500
+    num_base_stations = 31
+    num_devices = 500
+    simulation_length_ms = 2500
 
     simulator = Simulator(num_base_stations=num_base_stations, num_devices=num_devices, simulation_length_ms=simulation_length_ms)
     simulator.run_simulation()

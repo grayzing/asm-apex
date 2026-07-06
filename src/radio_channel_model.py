@@ -4,6 +4,7 @@ from base_station_manager import BaseStationManager
 from sector_manager import SectorManager
 from device_manager import DeviceManager
 from geometry_helper import GeometryHelper
+from sleep_mode_manager import SleepModeManager
 
 from scipy.spatial.distance import cdist
 
@@ -20,7 +21,7 @@ class RadioChannelModel:
 
         self.rng = np.random.default_rng(seed)
 
-    def update_spectral_efficiency_matrix(self) -> np.ndarray:
+    def update_spectral_efficiency_matrix(self, sleep_mode_manager: SleepModeManager) -> np.ndarray:
         sinr_thresholds = np.array([-6.0, -4.0, -2.0, 1.0, 3.0, 5.5, 8.0, 11.0, 13.0, 16.0, 18.0, 21.0, 23.0, 26.0, 29.0])
         spectral_efficiencies = np.array([
             0.0000, 0.1523, 0.3770, 0.8770, 1.4766, 1.9141, 2.4063, 
@@ -29,6 +30,9 @@ class RadioChannelModel:
         cqi_matrix = np.digitize(self.sinr_dbm_matrix_per_slot, sinr_thresholds)
         allocated_spectral_efficiency = spectral_efficiencies[cqi_matrix]
         self.spectral_efficiency_matrix = allocated_spectral_efficiency
+        sleeping_indices = sleep_mode_manager.get_sector_sleep_mode_indices()
+        if len(sleeping_indices) > 0:
+            self.spectral_efficiency_matrix[sleeping_indices, :] = 0.0
 
     def update_directional_gain_matrix(self, geometry_helper: GeometryHelper, sector_manager: SectorManager, device_manager: DeviceManager):
         vertical_attenuation_db: np.ndarray = np.minimum(

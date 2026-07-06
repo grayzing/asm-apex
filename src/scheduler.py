@@ -27,7 +27,7 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
 
     def schedule(self, sector_manager: SectorManager, radio_channel_model: RadioChannelModel, traffic_generator: TrafficGenerator, handover_manager: HandoverManager, device_manager: DeviceManager, sleep_mode_manager: SleepModeManager, step: int):
         # 1. Map current SINR array values into the underlying link spectral efficiencies (bits/RE)
-        radio_channel_model.update_spectral_efficiency_matrix()
+        radio_channel_model.update_spectral_efficiency_matrix(sleep_mode_manager)
         
         # 2. Extract current downlink backlog frames for this active simulation interval step
         # Matrix shape: (num_devices, window_length) -> slicing yields a 1D vector of shape (num_devices,)
@@ -132,4 +132,14 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
         sector_manager.sector_physical_resource_block_utilization[sleep_mode_manager.get_sector_sleep_mode_indices()] = 0.01
 
         device_manager.device_physical_resource_block_allocation_vector = np.sum(prb_allocation_matrix, axis=0).astype(np.int16)
+
+        total_tx_bits_per_device = np.sum(actual_transmitted_bits_matrix, axis=0)
+        leftover_backlog = current_queues  # Because you subtracted transmitted bits from current_queues during the allocation loops
+
+        # Carry any unserved bits forward to the next millisecond step index
+        if step + 1 < traffic_generator.window_length:
+            traffic_generator.device_downlink_bits_matrix[:, step + 1] += leftover_backlog
+
+        # Clean out the current step index entirely
+        traffic_generator.device_downlink_bits_matrix[:, step] = 0.0
         return prb_allocation_matrix, total_tx_bits_per_device

@@ -15,7 +15,9 @@ class SleepModeManager:
     def set_sleep_mode(self, sector_id: int, sleep_mode: int, sector_manager: SectorManager) -> None:
         assert sleep_mode in [0,1,2,3], "Invalid sleep mode"
         if sleep_mode == 3:
+            self.sector_sleep_mode_matrix[sector_id] = sleep_mode
             self.sector_sleep_mode_countdown[sector_id] = 5 + 10 # activation and minimum time in sleep mode
+            return
         if self.sector_sleep_mode_countdown[sector_id] == 0:
             self.sector_sleep_mode_matrix[sector_id] = sleep_mode
 
