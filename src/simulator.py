@@ -8,17 +8,19 @@ from sector_manager import SectorManager
 from device_manager import DeviceManager
 from radio_channel_model import RadioChannelModel
 from handover_manager import RSRPBasedHandoverManager
-from mobility_helper import RandomWalkMobilityHelper
+from mobility_helper import RandomWalkMobilityHelper, LinearWalkMobilityHelper
 from network_topology_helper import HexagonalNetworkTopologyHelperWithRandomDevicePlacements, HeterogenousHexagonalNetworkTopologyHelperWithRandomDevicePlacements
 from scheduler import QueueAwareProportionalFairPhysicalResourceBlockScheduler
 from traffic_generator import TrafficGenerator, BurstyTrafficGenerator
+from sleep_mode_manager import SleepModeManager
 
 class Simulator:
     def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
         self.num_base_stations = num_base_stations
         self.num_devices = num_devices
         self.simulation_length_ms = simulation_length_ms
-
+        self.rng = np.random.default_rng(seed=seed)
+        self.sleep_mode_manager = SleepModeManager(num_sectors=self.num_base_stations * 3)
         self.network_topology_helper = HeterogenousHexagonalNetworkTopologyHelperWithRandomDevicePlacements(num_base_stations=self.num_base_stations, num_sectors_per_base_station=3, num_devices=self.num_devices, seed=seed)
         self.network_topology_helper.intialize_network_topology()
 
@@ -33,6 +35,18 @@ class Simulator:
         self.traffic_generator.generate_device_downlink_bits_matrix()
 
         self.scheduler = QueueAwareProportionalFairPhysicalResourceBlockScheduler(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
+
+    def set_random_sleep_mode(self):
+        # Put a random sector to sleep
+        sector_sleep_id = self.rng.integers(0, self.num_base_stations*3)
+        random_sleep_mode = 1
+        print(f"Sector sleep id: {sector_sleep_id}")
+        print(f"Random sleep mode: {random_sleep_mode}")
+        self.sleep_mode_manager.set_sleep_mode(
+            sector_id=sector_sleep_id,
+            sleep_mode=random_sleep_mode,
+            sector_manager=self.sector_manager
+        )
 
     def run_simulation(self):
         total_transmitted_bits_per_device = np.zeros(self.num_devices, dtype=np.float64)
@@ -52,15 +66,19 @@ class Simulator:
             self.radio_channel_model.update_sinr_dbm_matrix_per_slot(self.sector_manager)
             self.radio_channel_model.update_spectral_efficiency_matrix()
 
-            self.handover_manager.handover(self.sector_manager, self.device_manager, self.radio_channel_model)
+            self.handover_manager.handover(self.sector_manager, self.device_manager, self.radio_channel_model, self.sleep_mode_manager)
+
             prb_allocation_matrix, transmitted_bits_per_device = self.scheduler.schedule(
                 self.sector_manager,
                 self.radio_channel_model,
                 self.traffic_generator,
                 self.handover_manager,
                 self.device_manager,
+                self.sleep_mode_manager,
                 step,
             )
+
+            self.sleep_mode_manager.tick()
 
             total_transmitted_bits_per_device += transmitted_bits_per_device
             total_prbs_allocated_per_device += np.sum(prb_allocation_matrix, axis=0)
@@ -83,8 +101,8 @@ class Simulator:
         print(f"Median PRBs allocated per device: {np.median(total_prbs_allocated_per_device):.2f}")
 
 if __name__ == "__main__":
-    num_base_stations = 19
-    num_devices = 500
+    num_base_stations = 7
+    num_devices = 120
     simulation_length_ms = 500
 
     simulator = Simulator(num_base_stations=num_base_stations, num_devices=num_devices, simulation_length_ms=simulation_length_ms)

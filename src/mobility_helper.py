@@ -33,4 +33,10 @@ class RandomWalkMobilityHelper(MobilityHelper):
 
         device_manager.device_velocity_matrix = velocities
         device_manager.device_position_matrix = new_positions
-    
+
+class LinearWalkMobilityHelper(MobilityHelper):
+    def __init__(self, seed=24):
+        super().__init__()
+
+    def step_devices(self, device_manager: DeviceManager) -> None:
+        device_manager.device_position_matrix += device_manager.get_all_velocities()

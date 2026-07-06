@@ -5,6 +5,7 @@ from radio_channel_model import RadioChannelModel
 from device_manager import DeviceManager
 from traffic_generator import TrafficGenerator
 from handover_manager import HandoverManager
+from sleep_mode_manager import SleepModeManager
 
 from abc import ABC, abstractmethod
 
@@ -14,7 +15,7 @@ class PhysicalResourceBlockScheduler(ABC):
         self.num_devices = num_devices
 
     @abstractmethod
-    def schedule(self, sector_manager: SectorManager, radio_channel_model: RadioChannelModel, traffic_generator: TrafficGenerator, handover_manager: HandoverManager):
+    def schedule(self, sector_manager: SectorManager, radio_channel_model: RadioChannelModel, traffic_generator: TrafficGenerator, handover_manager: HandoverManager, sleep_mode_manager: SleepModeManager):
         raise NotImplementedError("Subclasses must implement this method.")
     
 class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceBlockScheduler):
@@ -24,7 +25,7 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
         self.alpha = 1.0
         self.ema_beta = 0.95  # Smoothing history window parameter for Proportional Fair
 
-    def schedule(self, sector_manager: SectorManager, radio_channel_model: RadioChannelModel, traffic_generator: TrafficGenerator, handover_manager: HandoverManager, device_manager: DeviceManager, step: int):
+    def schedule(self, sector_manager: SectorManager, radio_channel_model: RadioChannelModel, traffic_generator: TrafficGenerator, handover_manager: HandoverManager, device_manager: DeviceManager, sleep_mode_manager: SleepModeManager, step: int):
         # 1. Map current SINR array values into the underlying link spectral efficiencies (bits/RE)
         radio_channel_model.update_spectral_efficiency_matrix()
         
@@ -128,5 +129,7 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
         safe_total_prbs = np.where(total_prbs_per_sector == 0, 1, total_prbs_per_sector)
         
         sector_manager.sector_physical_resource_block_utilization = np.maximum(0.05, (allocated_prbs_per_sector / safe_total_prbs)).astype(np.float32)
+        sector_manager.sector_physical_resource_block_utilization[sleep_mode_manager.get_sector_sleep_mode_indices()] = 0.01
+
         device_manager.device_physical_resource_block_allocation_vector = np.sum(prb_allocation_matrix, axis=0).astype(np.int16)
         return prb_allocation_matrix, total_tx_bits_per_device
