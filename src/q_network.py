@@ -6,14 +6,12 @@ class Q(nn.Module):
         nn.Module.__init__(self)
 
         self.fc = nn.Sequential(
-            nn.Linear(18018, 8192),
+            nn.Linear(18018, 512),
             nn.ReLU(),
-            nn.Linear(8192, 4096),
+            nn.Linear(512, 256),
             nn.ReLU(),
-            nn.Linear(4096,512),
-            nn.ReLU()
         )
-        self.action_out = nn.Linear(512, 12)
+        self.action_out = nn.Linear(256, 12)
 
     def forward(self, x):
         return self.action_out(self.fc(x))

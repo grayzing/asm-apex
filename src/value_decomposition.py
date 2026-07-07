@@ -14,7 +14,7 @@ import time
 C = 1000 # Target Q network update interval
 L = 30000 # Number of episodes to train for
 K = 4 # Minibatch size
-M = 5 # Number of steps per episode
+M = 500 # Number of steps per episode
 E = 0.99 # Initial epsilon
 S = 60000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
@@ -247,11 +247,14 @@ if __name__ == "__main__":
 
             if memory.tree.n_entries >= K:
                 observations, actions, rewards, next_observations, idxs, is_weight = memory.sample(K)
-                print(idxs)
+                #print(idxs)
                 batched_observations = torch.stack(observations).to(gpu_device)
                 batched_actions = torch.stack(actions).to(gpu_device)
                 batched_rewards = torch.stack(rewards).to(gpu_device)
                 batched_next_observations = torch.stack(next_observations).to(gpu_device)
+
+                #print(batched_observations[0, 0, :10])
+                #print(batched_observations[1, 0, :10])
 
                 #print(batched_observations.shape)
                 #print(batched_actions.shape)
@@ -293,7 +296,7 @@ if __name__ == "__main__":
                 # Update the priority
                 for i in prange(K):
                     idx = idxs[i]
-                    memory.update(idx, loss[i].item())
+                    memory.update(idx, torch.abs(total_q - target).item())
 
                 loss_for_backprop = (torch.FloatTensor(is_weight)*loss).mean()
                 optimizer.zero_grad()
