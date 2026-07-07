@@ -10,6 +10,7 @@ class SectorManager:
         self.front_to_back_ratio_matrix: np.ndarray = np.full((num_sectors, ), 30.0, dtype=np.float16)
         self.max_array_gain_matrix: np.ndarray = np.full((num_sectors, ), 30.0, dtype=np.float16)
         self.sector_azimuth_angle_deg_matrix: np.ndarray = np.resize([30, 150, 270], num_sectors)
+        self.neighboring_sectors_indices_matrix: np.ndarray = np.zeros((num_sectors, 18), dtype=np.int16)
 
         self.center_freq_ghz_matrix: np.ndarray = np.full((num_sectors, ), 6.0, dtype=np.float32)
         self.bandwidth_mhz_matrix: np.ndarray = np.full((num_sectors, ), 20.0, dtype=np.float32)

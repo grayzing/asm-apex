@@ -6,6 +6,8 @@ from device_manager import DeviceManager
 
 from abc import ABC, abstractmethod
 
+from scipy.spatial.distance import cdist
+
 class NetworkTopologyHelper(ABC):
     def __init__(self, num_base_stations: int, num_sectors_per_base_station: int, num_devices: int) -> None:
 
@@ -78,6 +80,14 @@ class HexagonalNetworkTopologyHelperWithRandomDevicePlacements(NetworkTopologyHe
             base_station_positions.append([x, y, 10.0]) # Default Z=10 for micros
 
         self.base_station_manager.base_station_position_matrix = np.array(base_station_positions[:self.num_base_stations], dtype=np.float32)
+
+        # Now we also populate the neighboring sectors.
+        sector_positions: np.ndarray = self.base_station_manager.get_all_positions()[self.sector_manager.sector_parent_base_station_vector] # M x 3
+        sector_distance_matrix: np.ndarray = cdist(sector_positions, sector_positions).astype(np.float32)
+        # Then make the diagonals inf so the sectors on the same base station aren't picked up.
+        sector_distance_matrix += (np.identity(self.num_sectors) * np.inf)
+        # ...Then sort the columns. 
+        self.sector_manager.neighboring_sectors_indices_matrix = np.argpartition(sector_distance_matrix, -18, axis=1)[:, -18:]
 
     def generate_device_positions(self):
         x_min = np.min(self.base_station_manager.base_station_position_matrix[:, 0])

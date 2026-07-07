@@ -14,12 +14,28 @@ class SleepModeManager:
 
     def set_sleep_mode(self, sector_id: int, sleep_mode: int, sector_manager: SectorManager) -> None:
         assert sleep_mode in [0,1,2,3], "Invalid sleep mode"
-        if sleep_mode == 3:
+        # Check sleep mode countdown
+        sector_current_sleep_mode = self.sector_sleep_mode_matrix[sector_id]
+        sector_current_sleep_mode_countdown = self.sector_sleep_mode_countdown[sector_id]
+        if sector_current_sleep_mode == sleep_mode:
+            return # Just do nothing
+        if sector_current_sleep_mode_countdown > 0:
+            # Don't let it change sleep modes if already in a countdown
+            return 
+        if sleep_mode == 3 or (sector_current_sleep_mode == 3 and sleep_mode == 0):
             self.sector_sleep_mode_matrix[sector_id] = sleep_mode
             self.sector_sleep_mode_countdown[sector_id] = 5 + 10 # activation and minimum time in sleep mode
             return
+        if sleep_mode == 2:
+            self.sector_sleep_mode_matrix[sector_id] = sleep_mode
+            self.sector_sleep_mode_countdown[sector_id] = 2
+            return
+
         if self.sector_sleep_mode_countdown[sector_id] == 0:
             self.sector_sleep_mode_matrix[sector_id] = sleep_mode
+            return
+
+        return
 
 
     def get_sector_sleep_mode_indices(self) -> np.ndarray:
