@@ -28,6 +28,11 @@ config = (
                 })},
         policy_mapping_fn=lambda agent_id, *args, **kwargs: "shared_policy"
     )
+    .evaluation(
+        evaluation_num_env_runners=1,
+        evaluation_interval=1,
+        evaluation_duration=10,
+    )
 )
 algo = config.build()
 
