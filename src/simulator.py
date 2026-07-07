@@ -64,6 +64,8 @@ class Simulator:
         self.handover_manager.sector_device_association_matrix: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.int8)
         self.traffic_generator.generate_device_downlink_bits_matrix()
 
+        self.kpi_handler.total_transmitted_bits_per_device = np.zeros(self.num_devices, dtype=np.float64)
+
         gc.collect()
 
     def set_random_sleep_mode(self):

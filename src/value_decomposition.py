@@ -13,7 +13,7 @@ import time
 C = 1000 # Target Q network update interval
 L = 30000 # Number of episodes to train for
 K = 4 # Minibatch size
-M = 5 # Number of steps per episode
+M = 500 # Number of steps per episode
 E = 0.99 # Initial epsilon
 S = 60000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
