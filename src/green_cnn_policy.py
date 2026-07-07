@@ -12,7 +12,9 @@ class GreenCNNPolicy(TorchModelV2, nn.Module):
             nn.ReLU(),
             nn.Linear(8192, 4096),
             nn.ReLU(),
-            nn.Linear(4096,512),
+            nn.LSTM(4096, 2048, 1),
+            nn.ReLU(),
+            nn.Linear(2048,512),
             nn.ReLU()
         )
         self.action_out = nn.Linear(512, num_outputs)

@@ -36,7 +36,7 @@ config = (
 )
 algo = config.build()
 
-for _ in range(30_000):
+for _ in range(5):
     algo.train()
 
 pprint(algo.evaluate())

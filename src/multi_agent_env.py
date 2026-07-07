@@ -75,7 +75,7 @@ class UltraDenseHetNetEnvironment(MultiAgentEnv):
         }
 
         truncated_dict = {
-            "__all__": self.num_steps >= 2500
+            "__all__": self.num_steps >= 2499
         }
 
         terminated_dict = {
