@@ -13,12 +13,15 @@ import time
 C = 1000 # Target Q network update interval
 L = 30000 # Number of episodes to train for
 K = 4 # Minibatch size
-M = 500 # Number of steps per episode
+M = 5 # Number of steps per episode
 E = 0.99 # Initial epsilon
 S = 60000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
 MIN_EPSILON = 0.05 # Minimum epsilon
 GAMMA = 0.95 # Discount factor
+
+gpu_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+cpu_device = torch.device('cpu')
 
 def take_observation(agent_id: int, simulator: Simulator) -> torch.Tensor:
     return torch.from_numpy(np.concatenate(
@@ -31,15 +34,15 @@ def take_observation(agent_id: int, simulator: Simulator) -> torch.Tensor:
             ).flatten(),
             simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
         ]
-    )).to(torch.float32)
+    )).to(torch.float32).to(cpu_device)
 
 def epsilon_greedy(q_net: Q, observation: torch.Tensor, epsilon: float, rng=np.random.default_rng()) -> torch.Tensor:
     epsilon_greedy_random_variable = rng.uniform(0,1)
     if epsilon_greedy_random_variable <= epsilon:
         # Take a random action
-        return torch.tensor(rng.integers(low=0,high=12))
+        return torch.tensor(rng.integers(low=0,high=12)).to(cpu_device)
     # Otherwise, take the Q estimate
-    argmax_q = torch.argmax(q_net(observation))
+    argmax_q = torch.argmax(q_net(observation)).to(cpu_device)
     return argmax_q
 
 class ExperienceReplay:
@@ -103,12 +106,12 @@ if __name__ == "__main__":
                 reward_it = reward_sleep + reward_sla
 
                 total_next_observations.append(next_observation_it)
-                total_rewards.append(torch.tensor(reward_it))
+                total_rewards.append(torch.tensor(reward_it).to(gpu_device))
 
-            total_observations = torch.vstack(total_observations)
-            total_actions = torch.vstack(total_actions)
-            total_rewards = torch.vstack(total_rewards)
-            total_next_observations = torch.vstack(total_next_observations)
+            total_observations = torch.vstack(total_observations).to(gpu_device)
+            total_actions = torch.vstack(total_actions).to(gpu_device)
+            total_rewards = torch.vstack(total_rewards).to(gpu_device)
+            total_next_observations = torch.vstack(total_next_observations).to(gpu_device)
             memory.experience_queue.append(
                 (total_observations,total_actions,total_rewards,total_next_observations)
             )
@@ -116,48 +119,51 @@ if __name__ == "__main__":
             if len(memory.experience_queue) >= K:
                 observations, actions, rewards, next_observations = memory.sample()
 
-                batched_observations = torch.stack(observations)
-                batched_actions = torch.stack(actions)
-                batched_rewards = torch.stack(rewards)
-                batched_next_observations = torch.stack(next_observations)
+                batched_observations = torch.stack(observations).to(gpu_device)
+                batched_actions = torch.stack(actions).to(gpu_device)
+                batched_rewards = torch.stack(rewards).to(gpu_device)
+                batched_next_observations = torch.stack(next_observations).to(gpu_device)
 
                 #print(batched_observations.shape)
                 #print(batched_actions.shape)
                 #print(batched_rewards.shape)
                 #print(batched_next_observations.shape)
 
-                for transition in range(K):
-                    kth_actions = batched_actions[transition]
-                    kth_observation_stack = batched_observations[transition].float()
-                    kth_next_observation_stack = batched_next_observations[transition].float()
-                    #print(kth_observation_stack.shape)
-                    summed_kth_total_reward = sum(batched_rewards[transition]).squeeze()
-                    #print(summed_kth_total_reward.shape)
-                    kth_observation_q_values = q_net(kth_observation_stack)
-                    #print(kth_observation_q_values.shape)
-                    kth_observation_q_values_at_action = torch.gather(kth_observation_q_values, dim=1, index=kth_actions)
-                    #print(kth_observation_q_values_at_action.shape)
-                    kth_observation_total_q = mixing_net(kth_observation_q_values_at_action)
-                    #print(kth_observation_total_q)
+                # 1. Prepare batch on GPU
+                batched_observations = batched_observations.float().to(gpu_device)
+                batched_next_observations = batched_next_observations.float().to(gpu_device)
+                batched_actions = batched_actions.to(gpu_device)
+                batched_rewards = batched_rewards.to(gpu_device)
 
-                    kth_next_observation_q_values = target_q_net(kth_next_observation_stack)
-                    kth_next_observation_max_q_values, kth_next_observation_argmax_q_values = torch.max(kth_next_observation_q_values, dim=1)
-                    kth_next_observation_total_q = mixing_net(kth_next_observation_max_q_values)
-                    #print(kth_next_observation_total_q.shape)
+                # 2. Get Q-values for all agents in the batch
+                # batched_obs shape: (K, num_agents, obs_dim) -> (K * num_agents, obs_dim)
+                K, num_agents, obs_dim = batched_observations.shape
+                q_values = q_net(batched_observations.view(K * num_agents, -1)) # Shape: (K * num_agents, 12)
 
-                    target = summed_kth_total_reward + GAMMA * kth_next_observation_total_q
-                    loss = loss_fn(kth_observation_total_q, target)
+                # 3. Gather chosen actions
+                # batched_actions shape: (K, num_agents, 1)
+                gathered_q = torch.gather(q_values, dim=1, index=batched_actions.view(K * num_agents, -1))
+                gathered_q = gathered_q.view(K, num_agents)
 
-                    # Record KPIs
-                    loss_item = loss.item()
-                    #print(loss_item)
-                    step_reward_item = (torch.sum(total_rewards) / simulator.num_base_stations).item()
-                    #print(step_reward_item)
-                    kpi_list.append((episode, loss_item, step_reward_item, epsilon))
+                # 4. Mix (Sum)
+                total_q = mixing_net(gathered_q) # Shape: (K, 1)
 
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
+                # 5. Target Network
+                with torch.no_grad():
+                    next_q_values = target_q_net(batched_next_observations.view(K * num_agents, -1))
+                    max_next_q, _ = torch.max(next_q_values, dim=1) # Shape: (K * num_agents)
+                    max_next_q = max_next_q.view(K, num_agents)
+                    total_next_q = mixing_net(max_next_q) # Shape: (K, 1)
+
+                batch_reward_sum = batched_rewards.sum(dim=1)
+                target = batch_reward_sum + GAMMA * total_next_q
+                loss = loss_fn(total_q, target)
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                kpi_list.append((episode, loss.item(), batch_reward_sum.squeeze().mean().item(), epsilon))
         
         print(f"Ended episode!")
         epsilon = max(epsilon * EPSILON_DECAY_FACTOR, MIN_EPSILON)

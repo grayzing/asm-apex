@@ -23,4 +23,4 @@ class MixingNetwork(nn.Module):
         super().__init__()
     
     def forward(self, x):
-        return torch.sum(x)
+        return torch.sum(x, dim=1).reshape(x.shape[0], 1)
