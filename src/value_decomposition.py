@@ -248,6 +248,7 @@ if __name__ == "__main__":
             if memory.tree.n_entries >= K:
                 observations, actions, rewards, next_observations, idxs, is_weight = memory.sample(K)
                 #print(idxs)
+                is_weight_tensor = torch.FloatTensor(is_weight).to(gpu_device)
                 batched_observations = torch.stack(observations).to(gpu_device)
                 batched_actions = torch.stack(actions).to(gpu_device)
                 batched_rewards = torch.stack(rewards).to(gpu_device)
@@ -267,30 +268,30 @@ if __name__ == "__main__":
                 batched_rewards = batched_rewards.to(gpu_device)
 
                 K, num_agents, obs_dim = batched_observations.shape
-                q_values = q_net(batched_observations.view(K * num_agents, -1)) # Shape: (K * num_agents, 12)
+                q_values = q_net(batched_observations.view(K * num_agents, -1)).to(gpu_device) # Shape: (K * num_agents, 12)
 
-                gathered_q = torch.gather(q_values, dim=1, index=batched_actions.view(K * num_agents, -1))
-                gathered_q = gathered_q.view(K, num_agents)
-                total_q = mixing_net(gathered_q)
+                gathered_q = torch.gather(q_values, dim=1, index=batched_actions.view(K * num_agents, -1)).to(gpu_device)
+                gathered_q = gathered_q.view(K, num_agents).to(gpu_device)
+                total_q = mixing_net(gathered_q).to(gpu_device)
 
                 with torch.no_grad():
                     # Double deep Q target
-                    argmax_next_q_values = torch.argmax(q_net(batched_next_observations.view(K * num_agents, -1)),dim=1)
+                    argmax_next_q_values = torch.argmax(q_net(batched_next_observations.view(K * num_agents, -1)),dim=1).to(gpu_device)
                     # print(argmax_next_q_values.shape)
-                    next_q_values = target_q_net(batched_next_observations.view(K * num_agents, -1))
+                    next_q_values = target_q_net(batched_next_observations.view(K * num_agents, -1)).to(gpu_device)
                     # print(next_q_values.shape)
-                    action_next_q = torch.gather(next_q_values, dim=1, index=argmax_next_q_values.view(K * num_agents, -1))
+                    action_next_q = torch.gather(next_q_values, dim=1, index=argmax_next_q_values.view(K * num_agents, -1)).to(gpu_device)
                     # print(action_next_q.shape)
-                    action_next_q = action_next_q.view(K, num_agents)
-                    total_next_q = mixing_net(action_next_q) # Shape: (K, 1)
+                    action_next_q = action_next_q.view(K, num_agents).to(gpu_device)
+                    total_next_q = mixing_net(action_next_q).to(gpu_device) # Shape: (K, 1)
                     #print(f"Total next q: {total_next_q}")
 
-                batch_reward_sum = batched_rewards.sum(dim=1)
+                batch_reward_sum = batched_rewards.sum(dim=1).to(gpu_device)
                 target = batch_reward_sum + GAMMA * total_next_q
                 #print(target.shape)
                 #print(f"Total q shape: {total_q}")
                 
-                loss = loss_fn(total_q, target)
+                loss = loss_fn(total_q, target).to(gpu_device)
                 #print(loss.shape)
 
                 # Update the priority
@@ -298,7 +299,7 @@ if __name__ == "__main__":
                     idx = idxs[i]
                     memory.update(idx, torch.abs(total_q - target).item())
 
-                loss_for_backprop = (torch.FloatTensor(is_weight)*loss).mean()
+                loss_for_backprop = (is_weight_tensor*loss).mean().to(gpu_device)
                 optimizer.zero_grad()
                 loss_for_backprop.backward()
                 torch.nn.utils.clip_grad_norm_(q_net.parameters(), max_norm=1.0) # for staiblity
