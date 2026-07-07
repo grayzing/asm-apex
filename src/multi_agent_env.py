@@ -8,11 +8,11 @@ from simulator import Simulator
 class UltraDenseHetNetEnvironment(MultiAgentEnv):
     def __init__(self, config=None):
         super().__init__()
-        self.possible_agents = [f"agent_{i}" for i in range(0,32)]
+        self.possible_agents = [f"agent_{i}" for i in range(0,31)]
         self.agents = self.possible_agents
 
     def get_observation_space(self, agent_id):
-        return gym.spaces.Box(low=-200, high=200, shape=(18000, ), dtype=np.float32)
+        return gym.spaces.Box(low=-200, high=200, shape=(18018, ), dtype=np.float32)
 
     def get_action_space(self, agent_id):
         return gym.spaces.Discrete(12)
@@ -25,31 +25,37 @@ class UltraDenseHetNetEnvironment(MultiAgentEnv):
         self.simulator: Simulator = Simulator(31, 500, 2500, seed=seed)
         self.simulator.step(self.num_steps)
         initial_observation = {
-            f"agent_{i}": np.stack(
+            f"agent_{i}": np.concat(
+                [np.stack(
                 [
                     self.simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[self.simulator.sector_manager.neighboring_sectors_indices_matrix[i]],
                     self.simulator.radio_channel_model.sinr_dbm_matrix_per_slot[self.simulator.sector_manager.neighboring_sectors_indices_matrix[i]]
                 ],
                 axis=0
-            ).flatten() for i in range(0,32)
+                ).flatten(),
+                self.simulator.sleep_mode_manager.sector_sleep_mode_matrix[self.simulator.sector_manager.neighboring_sectors_indices_matrix[i]]
+            ]) for i in range(0,31)
         }
         return initial_observation, {}
     def step(self, action_dict):
         # Record observations
         self.num_steps += 1
         agent_observations = {
-            f"agent_{i}": np.stack(
+            f"agent_{i}": np.concat(
+                [np.stack(
                 [
                     self.simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[self.simulator.sector_manager.neighboring_sectors_indices_matrix[i]],
                     self.simulator.radio_channel_model.sinr_dbm_matrix_per_slot[self.simulator.sector_manager.neighboring_sectors_indices_matrix[i]]
                 ],
                 axis=0
-            ).flatten() for i in range(0,32)
+                ).flatten(),
+                self.simulator.sleep_mode_manager.sector_sleep_mode_matrix[self.simulator.sector_manager.neighboring_sectors_indices_matrix[i]]
+            ]) for i in range(0,31)
         }
         # Take actions
-        for action, agent_id in enumerate(action_dict):
+        for agent_id, action in action_dict.items():
             base_station_id = int(str.split(agent_id, '_')[-1])
-            sector_id = base_station_id + action // 4
+            sector_id = base_station_id * 3 + (action // 4)
             sleep_mode_id = action % 4
             self.simulator.sleep_mode_manager.set_sleep_mode(sector_id, sleep_mode_id, self.simulator.sector_manager)
         self.simulator.step(self.num_steps)
@@ -58,12 +64,12 @@ class UltraDenseHetNetEnvironment(MultiAgentEnv):
         alpha = 1.25
         beta = 0.95
 
-        ratio_of_active_sectors = np.count_nonzero(self.simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 0).mean()
-        ratio_of_sm1_sectors = np.count_nonzero(self.simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 1).mean()
-        ratio_of_sm2_sectors = np.count_nonzero(self.simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 2).mean()
-        ratio_of_sm3_sectors = np.count_nonzero(self.simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 3).mean()
+        ratio_of_active_sectors = np.count_nonzero(self.simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 0) / self.simulator.num_base_stations
+        ratio_of_sm1_sectors = np.count_nonzero(self.simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 1) / self.simulator.num_base_stations
+        ratio_of_sm2_sectors = np.count_nonzero(self.simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 2) / self.simulator.num_base_stations
+        ratio_of_sm3_sectors = np.count_nonzero(self.simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 3) / self.simulator.num_base_stations
 
-        ratio_of_sla_acceptable_devices = np.count_nonzero(self.simulator.kpi_handler.calculate_throughput_mbps(self.num_steps) >= 3.0).mean()
+        ratio_of_sla_acceptable_devices = np.count_nonzero(self.simulator.kpi_handler.calculate_throughput_mbps(self.num_steps) >= 3.0) / self.simulator.num_base_stations
 
         reward_sleep = alpha * -3 * ratio_of_active_sectors + ratio_of_sm1_sectors + 3 * ratio_of_sm2_sectors + 6 * ratio_of_sm3_sectors
 
@@ -71,19 +77,12 @@ class UltraDenseHetNetEnvironment(MultiAgentEnv):
 
 
         reward_dict = {
-            f"agent_{i}": reward_sleep + reward_sla for i in range(0,32)
+            f"agent_{i}": reward_sleep + reward_sla for i in range(0,31)
         }
+        done = self.num_steps >= 2499
+        truncated_dict = {f"agent_{i}": done for i in range(0,31)}
+        truncated_dict["__all__"] = done
+        terminated_dict = {f"agent_{i}": False for i in range(0,31)}
+        terminated_dict["__all__"] = False
 
-        truncated_dict = {
-            "__all__": self.num_steps >= 2499
-        }
-
-        terminated_dict = {
-            "__all__": False
-        }
-        # Leave terminated, info dicts empty
         return agent_observations, reward_dict, terminated_dict, truncated_dict, {}
-
-if __name__ == "__main__":
-    pass
-
