@@ -5,6 +5,7 @@ from q_network import Q, MixingNetwork
 from collections import deque
 from copy import deepcopy
 from rich import print
+from numba import njit, prange
 import random
 import torch
 import time
@@ -22,6 +23,138 @@ GAMMA = 0.95 # Discount factor
 
 gpu_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 cpu_device = torch.device('cpu')
+
+class PERLogger:
+    def __init__(self) -> None:
+        #self.per_log = h5py.Dataset()
+        pass
+
+class SumTree:
+    write = 0
+
+    def __init__(self, capacity, rng=np.random.default_rng()):
+        self.capacity = capacity
+        self.tree = np.zeros(2 * capacity - 1)
+        self.data = np.zeros(capacity, dtype=object)
+        self.n_entries = 0
+        self.rng = rng
+
+    # update to the root node
+    def _propagate(self, idx, change):
+        parent = (idx - 1) // 2
+
+        self.tree[parent] += change
+
+        if parent != 0:
+            self._propagate(parent, change)
+
+    # find sample on leaf node
+    def _retrieve(self, idx, s):
+        left = 2 * idx + 1
+        right = left + 1
+
+        if left >= len(self.tree):
+            return idx
+
+        if s <= self.tree[left]:
+            return self._retrieve(left, s)
+        else:
+            return self._retrieve(right, s - self.tree[left])
+
+    def total(self):
+        return self.tree[0]
+
+    # store priority and sample
+    def add(self, p, data):
+        idx = self.write + self.capacity - 1
+
+        self.data[self.write] = data
+        self.update(idx, p)
+
+        self.write += 1
+        if self.write >= self.capacity:
+            self.write = 0
+
+        if self.n_entries < self.capacity:
+            self.n_entries += 1
+
+    # update priority
+    def update(self, idx, p):
+        change = p - self.tree[idx]
+
+        self.tree[idx] = p
+        self._propagate(idx, change)
+
+    # get priority and sample
+    def get(self, s):
+        idx = self._retrieve(0, s)
+        dataIdx = idx - self.capacity + 1
+
+        return (idx, self.tree[idx], self.data[dataIdx])
+
+class Memory:  # stored as ( s, a, r, s_ ) in SumTree
+    e = 0.01
+    a = 0.9
+    beta = 1
+    beta_increment_per_sampling = 0.001
+
+    def __init__(self, capacity):
+        self.tree = SumTree(capacity)
+        self.capacity = capacity
+
+    def _get_priority(self, error):
+        return (np.abs(error) + self.e) ** self.a
+
+    def add(self, error, sample):
+        assert not np.isnan(error), "NaN error detected."
+        p = self._get_priority(error)
+        self.tree.add(p, sample)
+
+    def sample(self, n):
+        samples = []
+        idxs = []
+        segment = self.tree.total() / n
+        priorities = []
+
+        self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])
+
+        for i in range(n):
+            a = segment * i
+            b = segment * (i + 1)
+
+            s = self.tree.rng.uniform(a, b)
+            (idx, p, data) = self.tree.get(s)
+            priorities.append(p)
+
+            samples.append(
+                (
+                    data["observations"],
+                    data["actions"],
+                    data["rewards"],
+                    data["next_observations"]
+                )
+            )
+
+            idxs.append(idx)
+
+        sampling_probabilities = priorities / self.tree.total()
+        is_weight = np.power(self.tree.n_entries * sampling_probabilities, -self.beta)
+        is_weight /= is_weight.max()
+
+        observations, actions, rewards, next_observations = zip(*samples)
+
+        return (
+            observations,
+            actions,
+            rewards,
+            next_observations,
+            idxs,
+            is_weight
+        )
+
+    def update(self, idx, error):
+        p = self._get_priority(error)
+        self.tree.update(idx, p)
 
 def take_observation(agent_id: int, simulator: Simulator) -> torch.Tensor:
     return torch.from_numpy(np.concatenate(
@@ -45,29 +178,18 @@ def epsilon_greedy(q_net: Q, observation: torch.Tensor, epsilon: float, rng=np.r
     argmax_q = torch.argmax(q_net(observation)).to(cpu_device)
     return argmax_q
 
-class ExperienceReplay:
-    def __init__(self, queue_size: int, rng=np.random.default_rng()):
-        self.experience_queue: deque = deque(maxlen=queue_size)
-        self.batch_size = K
-        self.rng = rng
-
-    def sample(self) -> tuple:
-        samples = random.sample(self.experience_queue, self.batch_size)
-        observations, actions, rewards, next_observations = zip(*samples)
-        return observations, actions, rewards, next_observations
-
 if __name__ == "__main__":
     kpi_list = []
     columns = ['episode', 'loss', 'reward', 'epsilon']
-    memory: ExperienceReplay = ExperienceReplay(S)
+    memory: Memory = Memory(S)
     epsilon = E
     initial_seed = int(time.time())
     q_net: Q = Q()
     target_q_net: Q = deepcopy(q_net)
     mixing_net: MixingNetwork = MixingNetwork()
-    simulator: Simulator = Simulator(31, 500, M, seed=initial_seed)
+    simulator: Simulator = Simulator(19, 500, M, seed=initial_seed)
     optimizer = torch.optim.Adam(params=q_net.parameters())
-    loss_fn = torch.nn.MSELoss()
+    loss_fn = torch.nn.MSELoss(reduction="none")
     for episode in range(1, L):
         print(f"Starting episode: {episode}!")
         for step in range(M):
@@ -112,13 +234,20 @@ if __name__ == "__main__":
             total_actions = torch.vstack(total_actions).to(gpu_device)
             total_rewards = torch.vstack(total_rewards).to(gpu_device)
             total_next_observations = torch.vstack(total_next_observations).to(gpu_device)
-            memory.experience_queue.append(
-                (total_observations,total_actions,total_rewards,total_next_observations)
+            # Placeholder error, change this!!
+            memory.add(
+                sample={
+                    "observations": total_observations,
+                    "rewards": total_rewards,
+                    "actions": total_actions,
+                    "next_observations": total_next_observations
+                },
+                error=1e10
             )
 
-            if len(memory.experience_queue) >= K:
-                observations, actions, rewards, next_observations = memory.sample()
-
+            if memory.tree.n_entries >= K:
+                observations, actions, rewards, next_observations, idxs, is_weight = memory.sample(K)
+                print(idxs)
                 batched_observations = torch.stack(observations).to(gpu_device)
                 batched_actions = torch.stack(actions).to(gpu_device)
                 batched_rewards = torch.stack(rewards).to(gpu_device)
@@ -151,16 +280,28 @@ if __name__ == "__main__":
                     # print(action_next_q.shape)
                     action_next_q = action_next_q.view(K, num_agents)
                     total_next_q = mixing_net(action_next_q) # Shape: (K, 1)
+                    #print(f"Total next q: {total_next_q}")
 
                 batch_reward_sum = batched_rewards.sum(dim=1)
                 target = batch_reward_sum + GAMMA * total_next_q
+                #print(target.shape)
+                #print(f"Total q shape: {total_q}")
+                
                 loss = loss_fn(total_q, target)
+                #print(loss.shape)
 
+                # Update the priority
+                for i in prange(K):
+                    idx = idxs[i]
+                    memory.update(idx, loss[i].item())
+
+                loss_for_backprop = (torch.FloatTensor(is_weight)*loss).mean()
                 optimizer.zero_grad()
-                loss.backward()
+                loss_for_backprop.backward()
+                torch.nn.utils.clip_grad_norm_(q_net.parameters(), max_norm=1.0) # for staiblity
                 optimizer.step()
 
-                kpi_list.append((episode, loss.item(), batch_reward_sum.squeeze().mean().item(), epsilon))
+                kpi_list.append((episode, loss_for_backprop.item(), batch_reward_sum.squeeze().mean().item(), epsilon))
         
         print(f"Ended episode!")
         epsilon = max(epsilon * EPSILON_DECAY_FACTOR, MIN_EPSILON)

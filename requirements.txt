@@ -3,3 +3,6 @@ pytest
 matplotlib
 scipy
 torch
+rich
+pandas
+numba
