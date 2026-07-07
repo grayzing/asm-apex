@@ -15,6 +15,10 @@ ModelCatalog.register_custom_model("green_cnn_policy", GreenCNNPolicy)
 config = (
     SACConfig()
     .environment("sleep_switch_env")
+    .env_runners(
+        num_env_runners=8,
+        num_envs_per_env_runner=2
+    )
     .multi_agent(
         policies={"shared_policy": PolicySpec(config={
                     "model": {
