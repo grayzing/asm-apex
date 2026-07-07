@@ -29,7 +29,7 @@ class SimulationKPIHandler:
         self.total_transmitted_bits_per_device += total_transmitted_bits_per_device_vector
 
     def calculate_throughput_mbps(self, total_simulated_ms):
-        seconds = total_simulated_ms / 1000.0
+        seconds = total_simulated_ms / 1000.0 + 1e-6
         return (self.total_transmitted_bits_per_device / 1e6) / seconds
 
     def calculate_average_throughput_mbps(self, total_ms):

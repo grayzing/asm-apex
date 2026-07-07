@@ -1,4 +1,5 @@
 import time
+import gc
 
 import numpy as np
 
@@ -22,6 +23,7 @@ class Simulator:
         self.num_sectors = num_base_stations * 3
         self.simulation_length_ms = simulation_length_ms
         self.rng = np.random.default_rng(seed=seed)
+        
         self.sleep_mode_manager = SleepModeManager(num_sectors=self.num_base_stations * 3)
         self.network_topology_helper = HeterogenousHexagonalNetworkTopologyHelperWithRandomDevicePlacements(num_base_stations=self.num_base_stations, num_sectors_per_base_station=3, num_devices=self.num_devices, seed=seed)
         self.network_topology_helper.intialize_network_topology()
@@ -38,6 +40,31 @@ class Simulator:
 
         self.scheduler = QueueAwareProportionalFairPhysicalResourceBlockScheduler(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
         self.kpi_handler = SimulationKPIHandler(self.num_devices, self.num_sectors)
+
+    def reset(self, seed):
+        if seed is None:
+            seed = 42
+        self.rng = np.random.default_rng(seed=seed)
+        self.sleep_mode_manager.sector_sleep_mode_countdown = np.zeros((self.num_sectors, ), dtype=np.int8)
+        self.sleep_mode_manager.sector_sleep_mode_matrix = np.zeros((self.num_sectors, ), dtype=np.int32)
+
+        self.network_topology_helper.generate_device_positions()
+        self.sector_manager.sector_physical_resource_block_utilization: np.ndarray = np.full((self.num_sectors, ), 0.05, dtype=np.float32)
+
+        self.geometry_helper.relative_azimuth_angle_deg_matrix: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.float32)
+        self.geometry_helper.relative_zenith_angle_deg_matrix: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.float32)
+        self.geometry_helper.distance_matrix_meters_matrix: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.float32)
+
+        self.radio_channel_model.path_loss_matrix: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.float32)
+        self.radio_channel_model.directional_gain_matrix: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.float32)
+        self.radio_channel_model.received_power_dbm_matrix_per_resource_element: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.float32)
+        self.radio_channel_model.sinr_dbm_matrix_per_slot: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.float32)
+        self.radio_channel_model.spectral_efficiency_matrix: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.float32)
+
+        self.handover_manager.sector_device_association_matrix: np.ndarray = np.zeros((self.num_sectors, self.num_devices), dtype=np.int8)
+        self.traffic_generator.generate_device_downlink_bits_matrix()
+
+        gc.collect()
 
     def set_random_sleep_mode(self):
         # Put a random sector to sleep
