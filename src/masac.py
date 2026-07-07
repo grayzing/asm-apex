@@ -4,6 +4,7 @@ from ray.rllib.policy.policy import PolicySpec
 from multi_agent_env import UltraDenseHetNetEnvironment
 from ray.rllib.models import ModelCatalog
 from green_cnn_policy import GreenCNNPolicy
+from pprint import pprint
 
 def env_creator(env_config):
     return UltraDenseHetNetEnvironment(config=env_config)
@@ -29,4 +30,9 @@ config = (
     )
 )
 algo = config.build()
-algo.train()
+
+for _ in range(30_000):
+    algo.train()
+
+pprint(algo.evaluate())
+algo.stop()
