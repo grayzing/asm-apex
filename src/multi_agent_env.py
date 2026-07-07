@@ -1,17 +1,18 @@
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 import gymnasium as gym
 import numpy as np
+import time
 
 from simulator import Simulator
 
-class HeterogenousNetworkMultiAgentSleepEnv(MultiAgentEnv):
+class UltraDenseHetNetEnvironment(MultiAgentEnv):
     def __init__(self, config=None):
         super().__init__()
         self.possible_agents = [f"agent_{i}" for i in range(0,32)]
         self.agents = self.possible_agents
 
     def get_observation_space(self, agent_id):
-        return gym.spaces.Box(low=-200, high=200, shape=(18, 500, 2), dtype=np.float32)
+        return gym.spaces.Box(low=-200, high=200, shape=(18000, ), dtype=np.float32)
 
     def get_action_space(self, agent_id):
         return gym.spaces.Discrete(12)
@@ -30,7 +31,7 @@ class HeterogenousNetworkMultiAgentSleepEnv(MultiAgentEnv):
                     self.simulator.radio_channel_model.sinr_dbm_matrix_per_slot[self.simulator.sector_manager.neighboring_sectors_indices_matrix[i]]
                 ],
                 axis=0
-            ) for i in range(0,32)
+            ).flatten() for i in range(0,32)
         }
         return initial_observation, {}
     def step(self, action_dict):
@@ -43,7 +44,7 @@ class HeterogenousNetworkMultiAgentSleepEnv(MultiAgentEnv):
                     self.simulator.radio_channel_model.sinr_dbm_matrix_per_slot[self.simulator.sector_manager.neighboring_sectors_indices_matrix[i]]
                 ],
                 axis=0
-            ) for i in range(0,32)
+            ).flatten() for i in range(0,32)
         }
         # Take actions
         for action, agent_id in enumerate(action_dict):
@@ -76,8 +77,12 @@ class HeterogenousNetworkMultiAgentSleepEnv(MultiAgentEnv):
         truncated_dict = {
             "__all__": self.num_steps >= 2500
         }
+
+        terminated_dict = {
+            "__all__": False
+        }
         # Leave terminated, info dicts empty
-        return agent_observations, reward_dict, {}, truncated_dict, {}
+        return agent_observations, reward_dict, terminated_dict, truncated_dict, {}
 
 if __name__ == "__main__":
     pass

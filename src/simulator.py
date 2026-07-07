@@ -29,7 +29,6 @@ class Simulator:
         self.base_station_manager = self.network_topology_helper.base_station_manager
         self.sector_manager = self.network_topology_helper.sector_manager
         self.device_manager = self.network_topology_helper.device_manager
-        print(self.network_topology_helper.num_sectors)
         self.geometry_helper = GeometryHelper(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
         self.radio_channel_model = RadioChannelModel(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices, seed=seed)
         self.handover_manager = RSRPBasedHandoverManager(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
