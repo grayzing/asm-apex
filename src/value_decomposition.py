@@ -129,31 +129,28 @@ if __name__ == "__main__":
                 #print(batched_rewards.shape)
                 #print(batched_next_observations.shape)
 
-                # 1. Prepare batch on GPU
                 batched_observations = batched_observations.float().to(gpu_device)
                 batched_next_observations = batched_next_observations.float().to(gpu_device)
                 batched_actions = batched_actions.to(gpu_device)
                 batched_rewards = batched_rewards.to(gpu_device)
 
-                # 2. Get Q-values for all agents in the batch
-                # batched_obs shape: (K, num_agents, obs_dim) -> (K * num_agents, obs_dim)
                 K, num_agents, obs_dim = batched_observations.shape
                 q_values = q_net(batched_observations.view(K * num_agents, -1)) # Shape: (K * num_agents, 12)
 
-                # 3. Gather chosen actions
-                # batched_actions shape: (K, num_agents, 1)
                 gathered_q = torch.gather(q_values, dim=1, index=batched_actions.view(K * num_agents, -1))
                 gathered_q = gathered_q.view(K, num_agents)
+                total_q = mixing_net(gathered_q)
 
-                # 4. Mix (Sum)
-                total_q = mixing_net(gathered_q) # Shape: (K, 1)
-
-                # 5. Target Network
                 with torch.no_grad():
+                    # Double deep Q target
+                    argmax_next_q_values = torch.argmax(q_net(batched_next_observations.view(K * num_agents, -1)),dim=1)
+                    # print(argmax_next_q_values.shape)
                     next_q_values = target_q_net(batched_next_observations.view(K * num_agents, -1))
-                    max_next_q, _ = torch.max(next_q_values, dim=1) # Shape: (K * num_agents)
-                    max_next_q = max_next_q.view(K, num_agents)
-                    total_next_q = mixing_net(max_next_q) # Shape: (K, 1)
+                    # print(next_q_values.shape)
+                    action_next_q = torch.gather(next_q_values, dim=1, index=argmax_next_q_values.view(K * num_agents, -1))
+                    # print(action_next_q.shape)
+                    action_next_q = action_next_q.view(K, num_agents)
+                    total_next_q = mixing_net(action_next_q) # Shape: (K, 1)
 
                 batch_reward_sum = batched_rewards.sum(dim=1)
                 target = batch_reward_sum + GAMMA * total_next_q

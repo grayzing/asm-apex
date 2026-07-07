@@ -4,6 +4,10 @@ __pycache__/
 *$py.class
 # Torch
 *.pth
+
+#KPI
+*.csv
+*.png
 # C extensions
 *.so
 
@@ -217,3 +221,4 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+src/training_log.csv
