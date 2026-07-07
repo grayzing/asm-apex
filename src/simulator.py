@@ -19,6 +19,7 @@ class Simulator:
     def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
         self.num_base_stations = num_base_stations
         self.num_devices = num_devices
+        self.num_sectors = num_base_stations * 3
         self.simulation_length_ms = simulation_length_ms
         self.rng = np.random.default_rng(seed=seed)
         self.sleep_mode_manager = SleepModeManager(num_sectors=self.num_base_stations * 3)
@@ -37,7 +38,7 @@ class Simulator:
         self.traffic_generator.generate_device_downlink_bits_matrix()
 
         self.scheduler = QueueAwareProportionalFairPhysicalResourceBlockScheduler(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
-        self.kpi_handler = SimulationKPIHandler(self.num_devices)
+        self.kpi_handler = SimulationKPIHandler(self.num_devices, self.num_sectors)
 
     def set_random_sleep_mode(self):
         # Put a random sector to sleep
@@ -72,13 +73,15 @@ class Simulator:
             self.handover_manager,
             self.device_manager,
             self.sleep_mode_manager,
-            step,
+            step_number,
         )
+
+        self.kpi_handler.update_kpis(transmitted_bits_per_device)
 
     def run_simulation(self):
         self.kpi_handler.start_clock()
         for step in range(0, self.simulation_length_ms):
             self.step(step_number=step)
-            self.kpi_handler.update_kpis(transmitted_bits_per_device, prb_allocation_matrix)
+            
         self.kpi_handler.end_clock()
-        self.kpi_handler.calculate_time_in_seconds()
+        self.kpi_handler.get_elapsed_time()

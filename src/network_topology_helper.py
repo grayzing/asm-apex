@@ -83,9 +83,7 @@ class HexagonalNetworkTopologyHelperWithRandomDevicePlacements(NetworkTopologyHe
 
         # Now we also populate the neighboring sectors.
         sector_positions: np.ndarray = self.base_station_manager.get_all_positions()[self.sector_manager.sector_parent_base_station_vector] # M x 3
-        sector_distance_matrix: np.ndarray = cdist(sector_positions, sector_positions).astype(np.float32)
-        # Then make the diagonals inf so the sectors on the same base station aren't picked up.
-        sector_distance_matrix += (np.identity(self.num_sectors) * np.inf)
+        sector_distance_matrix: np.ndarray = cdist(sector_positions, sector_positions).astype(np.float32) + 1e-9
         # ...Then sort the columns. 
         self.sector_manager.neighboring_sectors_indices_matrix = np.argpartition(sector_distance_matrix, -18, axis=1)[:, -18:]
 

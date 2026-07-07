@@ -2,38 +2,46 @@ import numpy as np
 from time import time
 
 class SimulationKPIHandler:
-    def __init__(self, num_devices: int):
-        self.start_time = 0
-        self.end_time = 0
-        self.elapsed_time = 0
-
+    def __init__(self, num_devices: int, num_sectors: int):
         self.num_devices = num_devices
+        self.num_sectors = num_sectors
         self.total_transmitted_bits_per_device = np.zeros(self.num_devices, dtype=np.float64)
-        self.total_prbs_allocated_per_device = np.zeros(self.num_devices, dtype=np.int64)
+        
+        # Clock tracking attributes
+        self.start_time = 0.0
+        self.end_time = 0.0
+        self.elapsed_time = 0.0
 
     def start_clock(self):
+        """Starts the simulation timer."""
         self.start_time = time()
 
     def end_clock(self):
+        """Stops the simulation timer."""
         self.end_time = time()
-
-    def calculate_time_in_seconds(self):
         self.elapsed_time = self.end_time - self.start_time
 
-    def update_kpis(self, total_transmitted_bits_per_device, total_prbs_allocated_per_device):
-        self.total_transmitted_bits_per_device += total_transmitted_bits_per_device
-        self.total_prbs_allocated_per_device += total_prbs_allocated_per_device
+    def get_elapsed_time(self):
+        """Returns the total elapsed time in seconds."""
+        return self.elapsed_time
 
-    def calculate_throughput_mbps(self, total_simulated_miliseconds):
-        return self.total_transmitted_bits_per_device / (total_simulated_seconds / 1e6)
+    def update_kpis(self, total_transmitted_bits_per_device_vector):
+        self.total_transmitted_bits_per_device += total_transmitted_bits_per_device_vector
 
-    def get_throughput_at_device(self, device_id, step):
-        return self.calculate_average_throughput_mbps(self, step)
+    def calculate_throughput_mbps(self, total_simulated_ms):
+        seconds = total_simulated_ms / 1000.0
+        return (self.total_transmitted_bits_per_device / 1e6) / seconds
 
-    def calculate_average_throughput_mbps(self):
-        return np.mean(self.total_transmitted_bits_per_device)
+    def calculate_average_throughput_mbps(self, total_ms):
+        return np.mean(self.calculate_throughput_mbps(total_ms))
 
-    def calculate_throughput_percentile(self, percentile):
-        assert 0 < percentile and percentile <= 100, "Bad range for percentile. Accepted range is (0, 100]"
-        return np.percentile(self.calculate_average_throughput_mbps(), percentile)
+    def calculate_throughput_percentile(self, percentile, total_ms):
+        return np.percentile(self.calculate_throughput_mbps(total_ms), percentile)
 
+    def print_kpis(self, total_ms):
+        avg = self.calculate_average_throughput_mbps(total_ms)
+        p10 = self.calculate_throughput_percentile(10, total_ms)
+        print(f"--- Simulation Performance ---")
+        print(f"Wall-clock time: {self.get_elapsed_time():.2f} seconds")
+        print(f"Average throughput (Mbps): {avg:.4f}")
+        print(f"10th percentile throughput (Mbps): {p10:.4f}")
