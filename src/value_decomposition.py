@@ -168,7 +168,7 @@ def take_observation(agent_id: int, simulator: Simulator) -> torch.Tensor:
             ).flatten(),
             simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
         ]
-    )).to(torch.float32)
+    )).to(torch.float32).to(gpu)
 
 def epsilon_greedy(q_net: Q, observation: torch.Tensor, epsilon: float, rng=np.random.default_rng()) -> torch.Tensor:
     epsilon_greedy_random_variable = rng.uniform(0,1)
