@@ -11,10 +11,22 @@ class Q(nn.Module):
             nn.Linear(512, 256),
             nn.ReLU(),
         )
-        self.action_out = nn.Linear(256, 12)
+        self.value_stream = nn.Linear(256, 1)
+        
+        self.advantage_stream = nn.Linear(256, 12)
 
     def forward(self, x):
-        return self.action_out(self.fc(x))
+        # Dueling network
+        features = self.fc(x)
+        
+        value = self.value_stream(features)
+        advantage = self.advantage_stream(features)
+        
+        if advantage.dim() == 1:
+            advantage = advantage.unsqueeze(0)
+
+        q_values = value + (advantage - advantage.mean(dim=1, keepdim=True))
+        return q_values
 
 class MixingNetwork(nn.Module):
     def __init__(self):

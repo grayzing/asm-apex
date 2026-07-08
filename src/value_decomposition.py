@@ -215,14 +215,14 @@ if __name__ == "__main__":
                 next_observation_it = take_observation(agent, simulator)
                 # Reward calculations
                 alpha = 1.25
-                beta = 0.95
+                beta = 1.5
 
                 ratio_of_active_sectors = np.count_nonzero(simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 0) / simulator.num_base_stations
                 ratio_of_sm1_sectors = np.count_nonzero(simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 1) / simulator.num_base_stations
                 ratio_of_sm2_sectors = np.count_nonzero(simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 2) / simulator.num_base_stations
                 ratio_of_sm3_sectors = np.count_nonzero(simulator.sleep_mode_manager.get_sector_sleep_mode_indices == 3) / simulator.num_base_stations
 
-                ratio_of_sla_acceptable_devices = np.count_nonzero(simulator.kpi_handler.calculate_throughput_mbps(step) >= 3.0) / simulator.num_base_stations
+                ratio_of_sla_acceptable_devices = np.count_nonzero(simulator.kpi_handler.calculate_throughput_mbps(step) >= 5.0) / simulator.num_base_stations
 
                 reward_sleep = alpha * -3 * ratio_of_active_sectors + ratio_of_sm1_sectors + 3 * ratio_of_sm2_sectors + 6 * ratio_of_sm3_sectors
                 reward_sla = beta * 6 * ratio_of_sla_acceptable_devices
