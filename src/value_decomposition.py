@@ -11,12 +11,12 @@ import torch
 import time
 
 # Hyperparameters
-C = 1000 # Target Q network update interval
-L = 30000 # Number of episodes to train for
-K = 4 # Minibatch size
+C = 500 # Target Q network update interval
+L = 5000 # Number of episodes to train for
+K = 64 # Minibatch size
 M = 500 # Number of steps per episode
 E = 0.99 # Initial epsilon
-S = 60000 # Experience replay buffer size
+S = 10000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
 MIN_EPSILON = 0.05 # Minimum epsilon
 GAMMA = 0.95 # Discount factor
@@ -158,26 +158,23 @@ def to_device(data, device):
     return data.to(device)
 
 def take_observation(agent_id: int, simulator: Simulator) -> torch.Tensor:
-    return torch.from_numpy(np.concatenate(
-        [np.stack(
-            [
-                simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]],
-                simulator.radio_channel_model.sinr_dbm_matrix_per_slot[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
-            ],
-            axis=0
-            ).flatten(),
-            simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
-        ]
-    )).to(torch.float32).to(cpu_device)
+    # Concatenate and move to GPU immediately
+    obs = np.concatenate([
+        np.stack([
+            simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]],
+            simulator.radio_channel_model.sinr_dbm_matrix_per_slot[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
+        ], axis=0).flatten(),
+        simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
+    ])
+    return torch.from_numpy(obs).to(torch.float32).to(gpu_device)
 
 def epsilon_greedy(q_net: Q, observation: torch.Tensor, epsilon: float, rng=np.random.default_rng()) -> torch.Tensor:
-    epsilon_greedy_random_variable = rng.uniform(0,1)
-    if epsilon_greedy_random_variable <= epsilon:
-        # Take a random action
-        return torch.tensor(rng.integers(low=0,high=12)).to(cpu_device)
-    # Otherwise, take the Q estimate
-    argmax_q = torch.argmax(q_net(observation)).to(cpu_device)
-    return argmax_q
+    if rng.uniform(0, 1) <= epsilon:
+        # Create directly on GPU
+        return torch.tensor(rng.integers(low=0, high=12), device=gpu_device)
+    # Network is already on GPU
+    with torch.no_grad():
+        return torch.argmax(q_net(observation.unsqueeze(0)))
 
 if __name__ == "__main__":
     kpi_list = []
@@ -185,21 +182,21 @@ if __name__ == "__main__":
     memory: Memory = Memory(S)
     epsilon = E
     initial_seed = int(time.time())
-    q_net: Q = Q()
-    target_q_net: Q = deepcopy(q_net)
-    mixing_net: MixingNetwork = MixingNetwork()
+    
+    # Initialize networks on GPU
+    q_net = Q().to(gpu_device)
+    target_q_net = deepcopy(q_net).to(gpu_device)
+    mixing_net = MixingNetwork().to(gpu_device)
+    
     simulator: Simulator = Simulator(19, 500, M, seed=initial_seed)
     optimizer = torch.optim.Adam(params=q_net.parameters())
     loss_fn = torch.nn.MSELoss(reduction="none")
+
     for episode in range(1, L):
-        print(f"Starting episode: {episode}!")
         for step in range(M):
-            # Get Q for each agent
             total_observations = []
             total_actions = []
-            total_rewards = []
-            total_next_observations = []
-            for agent in range(0,simulator.num_base_stations):
+            for agent in range(simulator.num_base_stations):
                 observation_it = take_observation(agent, simulator)
                 action_it = epsilon_greedy(q_net, observation_it, epsilon, simulator.rng)
                 total_observations.append(observation_it)
