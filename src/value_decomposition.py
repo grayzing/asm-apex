@@ -9,26 +9,25 @@ from numba import njit, prange
 import random
 import torch
 import time
+import traceback
 
 # Hyperparameters
 C = 1000 # Target Q network update interval
 L = 30000 # Number of episodes to train for
-K = 4 # Minibatch size
-M = 500 # Number of steps per episode
+K = 1 # Minibatch size
+M = 2 # Number of steps per episode
 E = 0.99 # Initial epsilon
 S = 60000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
 MIN_EPSILON = 0.05 # Minimum epsilon
 GAMMA = 0.95 # Discount factor
 
+# Filesystem stuff
+base_dir = "../sumtree"
+
 torch.set_default_device('cuda' if torch.cuda.is_available() else 'cpu')
 gpu = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 cpu = torch.device('cpu')
-
-class PERLogger:
-    def __init__(self) -> None:
-        #self.per_log = h5py.Dataset()
-        pass
 
 class SumTree:
     write = 0
@@ -36,7 +35,12 @@ class SumTree:
     def __init__(self, capacity, rng=np.random.default_rng()):
         self.capacity = capacity
         self.tree = np.zeros(2 * capacity - 1)
-        self.data = np.zeros(capacity, dtype=object)
+        self.data = {
+            "observations": np.memmap(f'{base_dir}/observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,18018)),
+            "actions": np.memmap(f'{base_dir}/actions.dat', dtype=np.int32, mode='w+', shape=(capacity,19,1)),
+            "rewards": np.memmap(f'{base_dir}/rewards.dat', dtype=np.float16, mode='w+', shape=(capacity,19,1)),
+            "next_observations": np.memmap(f'{base_dir}/next_observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,18018))
+        }
         self.n_entries = 0
         self.rng = rng
 
@@ -69,7 +73,10 @@ class SumTree:
     def add(self, p, data):
         idx = self.write + self.capacity - 1
 
-        self.data[self.write] = data
+        self.data["observations"][self.write] = data["observations"]
+        self.data["actions"][self.write] = data["actions"]
+        self.data["rewards"][self.write] = data["rewards"]
+        self.data["next_observations"][self.write] = data["next_observations"]
         self.update(idx, p)
 
         self.write += 1
@@ -90,8 +97,15 @@ class SumTree:
     def get(self, s):
         idx = self._retrieve(0, s)
         dataIdx = idx - self.capacity + 1
+        # Modify with the O, A, R, O'
+        return (idx, self.tree[idx], self.data["observations"][dataIdx].copy(), self.data["actions"][dataIdx].copy(), self.data["rewards"][dataIdx].copy(), self.data["next_observations"][dataIdx].copy())
 
-        return (idx, self.tree[idx], self.data[dataIdx])
+    # write data
+    def flush(self):
+        self.data["observations"].flush()
+        self.data["actions"].flush()
+        self.data["rewards"].flush()
+        self.data["next_observations"].flush()
 
 class Memory:  # stored as ( s, a, r, s_ ) in SumTree
     e = 0.01
@@ -124,15 +138,14 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
             b = segment * (i + 1)
 
             s = self.tree.rng.uniform(a, b)
-            (idx, p, data) = self.tree.get(s)
+            (idx, p, data_observations, data_actions, data_rewards, data_next_observations) = self.tree.get(s)
             priorities.append(p)
-
             samples.append(
                 (
-                    data["observations"],
-                    data["actions"],
-                    data["rewards"],
-                    data["next_observations"]
+                    np.array(data_observations),
+                    np.array(data_actions),
+                    np.array(data_rewards),
+                    np.array(data_next_observations)
                 )
             )
 
@@ -143,6 +156,7 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
         is_weight /= is_weight.max()
 
         observations, actions, rewards, next_observations = zip(*samples)
+        #print(observations)
 
         return (
             observations,
@@ -189,6 +203,7 @@ if __name__ == "__main__":
     target_q_net: Q = deepcopy(q_net)
     mixing_net: MixingNetwork = MixingNetwork()
     simulator: Simulator = Simulator(19, 500, M, seed=initial_seed)
+    simulator.step(0)
     optimizer = torch.optim.Adam(params=q_net.parameters())
     loss_fn = torch.nn.MSELoss(reduction="none")
     for episode in range(1, L):
@@ -238,10 +253,10 @@ if __name__ == "__main__":
             # Placeholder error, change this!!
             memory.add(
                 sample={
-                    "observations": total_observations,
-                    "rewards": total_rewards,
-                    "actions": total_actions,
-                    "next_observations": total_next_observations
+                    "observations": total_observations.detach().cpu().numpy(),
+                    "rewards": total_rewards.detach().cpu().numpy(),
+                    "actions": total_actions.detach().cpu().numpy(),
+                    "next_observations": total_next_observations.detach().cpu().numpy()
                 },
                 error=1e2
             )
@@ -249,11 +264,15 @@ if __name__ == "__main__":
             if memory.tree.n_entries >= K:
                 observations, actions, rewards, next_observations, idxs, is_weight = memory.sample(K)
                 #print(idxs)
-                is_weight_tensor = torch.FloatTensor(is_weight).to(gpu)
-                batched_observations = torch.stack(observations).to(gpu)
-                batched_actions = torch.stack(actions).to(gpu)
-                batched_rewards = torch.stack(rewards).to(gpu)
-                batched_next_observations = torch.stack(next_observations).to(gpu)
+                #print(observations)
+
+                # Convert the data
+
+                is_weight_tensor = torch.FloatTensor(is_weight)
+                batched_observations = torch.as_tensor(np.stack(observations).astype(np.float16)).to(gpu)
+                batched_actions = torch.as_tensor(np.stack(actions).astype(np.int32)).to(gpu)
+                batched_rewards = torch.as_tensor(np.stack(rewards).astype(np.float16)).to(gpu)
+                batched_next_observations = torch.as_tensor(np.stack(next_observations).astype(np.float16)).to(gpu)
 
                 #print(batched_observations[0, 0, :10])
                 #print(batched_observations[1, 0, :10])
@@ -310,17 +329,40 @@ if __name__ == "__main__":
         
         print(f"Ended episode!")
         epsilon = max(epsilon * EPSILON_DECAY_FACTOR, MIN_EPSILON)
+        print(f"Restarting simulator with seed {initial_seed + episode}")
         simulator.reset(initial_seed + episode)
 
         # Update target Q parameters
         if episode % C == 0:
-            print("Updating target Q parameters!")
-            target_q_net.load_state_dict(q_net.state_dict())
+            print("Attemping to update target Q parameters...")
+            try:
+                target_q_net.load_state_dict(q_net.state_dict())
+            except Exception as e:
+                print("An error occurred:")
+                traceback.print_exc()
+            finally:
+                print("Target Q parameters successfully updated!")
 
         # Saving some stuff
         if episode % 20 == 0:
-            print("Saving Q network!")
-            torch.save(q_net, "q_net.pth")
+            print("Attemping to save Q network...")
+            try:
+                torch.save(q_net, "q_net.pth")
+            except Exception as e:
+                print("An error occurred:")
+                traceback.print_exc()
+            finally:
+                print("Q network successfully saved!")
+
+        if episode % 10 == 0:
+            print("Attemping to flush the SumTree memmap...")
+            try:
+                memory.tree.flush()
+            except Exception as e:
+                print("An error occurred:")
+                traceback.print_exc()
+            finally:
+                print("SumTree successfully flushed!")
 
         if episode % 5 == 0:
             print("Saving KPIs!")

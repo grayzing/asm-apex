@@ -22,6 +22,8 @@ class EnhancedSleepSimulator(Simulator):
     def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
         super().__init__(num_base_stations = num_base_stations, num_devices = num_devices, simulation_length_ms= simulation_length_ms, seed = seed)
 
+        self.kpis = []
+
     def reset(self, seed):
         super().reset(seed)
 
@@ -51,6 +53,11 @@ class EnhancedSleepSimulator(Simulator):
                 )
     def step(self, step_number):
         super().step(step_number)
+        self.kpis.append((
+            step_number,
+            self.kpi_handler.calculate_average_throughput_mbps(step_number),
+            self.kpi_handler.calculate_throughput_percentile(10,step_number)
+        ))
     def run_simulation(self):
         super().run_simulation()
 

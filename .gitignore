@@ -8,6 +8,10 @@ __pycache__/
 #KPI
 *.csv
 *.png
+
+# dont track sumtree
+*.dat
+
 # C extensions
 *.so
 

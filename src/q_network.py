@@ -6,10 +6,12 @@ class Q(nn.Module):
         nn.Module.__init__(self)
 
         self.fc = nn.Sequential(
-            nn.Linear(18018, 512),
+            nn.Linear(18018, 1024),
             nn.ReLU(),
-            nn.Linear(512, 256),
+            nn.Linear(1024, 512),
             nn.ReLU(),
+            nn.Linear(512,256),
+            nn.ReLU()
         )
         self.value_stream = nn.Linear(256, 1)
         
