@@ -68,17 +68,8 @@ class Simulator:
 
         gc.collect()
 
-    def set_random_sleep_mode(self):
-        # Put a random sector to sleep
-        sector_sleep_id = self.rng.integers(0, self.num_base_stations*3)
-        random_sleep_mode = 1
-        #print(f"Sector sleep id: {sector_sleep_id}")
-        #print(f"Random sleep mode: {random_sleep_mode}")
-        self.sleep_mode_manager.set_sleep_mode(
-            sector_id=sector_sleep_id,
-            sleep_mode=random_sleep_mode,
-            sector_manager=self.sector_manager
-        )
+    def sleep_xapp(self, step_number):
+        pass
 
     def step(self, step_number):
         if step_number % 10 == 0:
@@ -105,6 +96,7 @@ class Simulator:
         )
 
         self.kpi_handler.update_kpis(transmitted_bits_per_device)
+        self.sleep_xapp(step_number)
 
     def run_simulation(self):
         self.kpi_handler.start_clock()

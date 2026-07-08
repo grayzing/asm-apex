@@ -19,7 +19,11 @@ class HandoverManager(ABC):
 
     @abstractmethod
     def handover(self, sector_manager: SectorManager, device_manager: DeviceManager, radio_channel_model: RadioChannelModel, sleep_mode_manager: SleepModeManager):
-        raise NotImplementedError("Subclasses must implement this method.")
+        raise NotImplementedError("Subclasses must implement this method.") 
+
+    def manual_handover(self, sector_id: int, device_id: int, sector_manager: SectorManager, device_manager: DeviceManager, radio_channel_model: RadioChannelModel, sleep_mode_manager: SleepModeManager):
+        self.sector_device_association_matrix[:, device_id] = 0
+        self.sector_device_association_matrix[sector_id][device_id] = 1
     
 class RSRPBasedHandoverManager(HandoverManager):
     def __init__(self, num_sectors: int, num_devices: int, hysterisis: float = 3.0) -> None:
@@ -28,6 +32,9 @@ class RSRPBasedHandoverManager(HandoverManager):
 
     def get_serving_sector_indices(self) -> np.ndarray:
         return np.argmax(self.sector_device_association_matrix, axis=0)
+
+    def manual_handover(self, sector_id: int, device_id: int, sector_manager: SectorManager, device_manager: DeviceManager, radio_channel_model: RadioChannelModel, sleep_mode_manager: SleepModeManager):
+        super().manual_handover(sector_id, device_id, sector_manager, device_manager, radio_channel_model, sleep_mode_manager)
 
     def handover(self, sector_manager: SectorManager, device_manager: DeviceManager, radio_channel_model: RadioChannelModel, sleep_mode_manager: SleepModeManager):
         # RSRP based handover, ignoring sectors who are asleep
