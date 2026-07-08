@@ -20,14 +20,10 @@ S = 60000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
 MIN_EPSILON = 0.05 # Minimum epsilon
 GAMMA = 0.95 # Discount factor
+GRAD_ACCUM_STEPS = 4
 
 gpu_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 cpu_device = torch.device('cpu')
-
-class PERLogger:
-    def __init__(self) -> None:
-        #self.per_log = h5py.Dataset()
-        pass
 
 class SumTree:
     write = 0
@@ -156,6 +152,11 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
         p = self._get_priority(error)
         self.tree.update(idx, p)
 
+def to_device(data, device):
+    if isinstance(data, (list, tuple)):
+        return [d.to(device) if isinstance(d, torch.Tensor) else d for d in data]
+    return data.to(device)
+
 def take_observation(agent_id: int, simulator: Simulator) -> torch.Tensor:
     return torch.from_numpy(np.concatenate(
         [np.stack(
@@ -242,71 +243,58 @@ if __name__ == "__main__":
                     "actions": total_actions,
                     "next_observations": total_next_observations
                 },
-                error=1e10
+                error=1e2
             )
 
             if memory.tree.n_entries >= K:
+                # 1. Sample and move to GPU (Crucial: delete local references if possible)
                 observations, actions, rewards, next_observations, idxs, is_weight = memory.sample(K)
-                #print(idxs)
-                is_weight_tensor = torch.FloatTensor(is_weight).to(gpu_device)
-                batched_observations = torch.stack(observations).to(gpu_device)
+                
+                is_weight_tensor = torch.as_tensor(is_weight, dtype=torch.float32, device=gpu_device).view(-1, 1)
+                batched_observations = torch.stack(observations).to(gpu_device).float()
+                batched_next_observations = torch.stack(next_observations).to(gpu_device).float()
                 batched_actions = torch.stack(actions).to(gpu_device)
                 batched_rewards = torch.stack(rewards).to(gpu_device)
-                batched_next_observations = torch.stack(next_observations).to(gpu_device)
 
-                #print(batched_observations[0, 0, :10])
-                #print(batched_observations[1, 0, :10])
-
-                #print(batched_observations.shape)
-                #print(batched_actions.shape)
-                #print(batched_rewards.shape)
-                #print(batched_next_observations.shape)
-
-                batched_observations = batched_observations.float().to(gpu_device)
-                batched_next_observations = batched_next_observations.float().to(gpu_device)
-                batched_actions = batched_actions.to(gpu_device)
-                batched_rewards = batched_rewards.to(gpu_device)
-
-                K, num_agents, obs_dim = batched_observations.shape
-                q_values = q_net(batched_observations.view(K * num_agents, -1)).to(gpu_device) # Shape: (K * num_agents, 12)
-
-                gathered_q = torch.gather(q_values, dim=1, index=batched_actions.view(K * num_agents, -1)).to(gpu_device)
-                gathered_q = gathered_q.view(K, num_agents).to(gpu_device)
-                total_q = mixing_net(gathered_q).to(gpu_device)
-
-                with torch.no_grad():
-                    # Double deep Q target
-                    argmax_next_q_values = torch.argmax(q_net(batched_next_observations.view(K * num_agents, -1)),dim=1).to(gpu_device)
-                    # print(argmax_next_q_values.shape)
-                    next_q_values = target_q_net(batched_next_observations.view(K * num_agents, -1)).to(gpu_device)
-                    # print(next_q_values.shape)
-                    action_next_q = torch.gather(next_q_values, dim=1, index=argmax_next_q_values.view(K * num_agents, -1)).to(gpu_device)
-                    # print(action_next_q.shape)
-                    action_next_q = action_next_q.view(K, num_agents).to(gpu_device)
-                    total_next_q = mixing_net(action_next_q).to(gpu_device) # Shape: (K, 1)
-                    #print(f"Total next q: {total_next_q}")
-
-                batch_reward_sum = batched_rewards.sum(dim=1).to(gpu_device)
-                target = batch_reward_sum + GAMMA * total_next_q
-                #print(target.shape)
-                #print(f"Total q shape: {total_q}")
+                # 2. Forward Pass (Using views to minimize memory footprint)
+                K_val, num_agents, obs_dim = batched_observations.shape
                 
-                loss = loss_fn(total_q, target).to(gpu_device)
-                #print(loss.shape)
+                # Process through Q-network
+                q_values = q_net(batched_observations.view(K_val * num_agents, -1))
+                gathered_q = torch.gather(q_values, dim=1, index=batched_actions.view(K_val * num_agents, -1)).view(K_val, num_agents)
+                total_q = mixing_net(gathered_q)
 
-                # Update the priority
-                for i in prange(K):
-                    idx = idxs[i]
-                    memory.update(idx, torch.abs(total_q - target).mean().item())
+                # Double DQN: Target calculation
+                with torch.no_grad():
+                    next_q_vals = target_q_net(batched_next_observations.view(K_val * num_agents, -1))
+                    # Select action using online net
+                    argmax_next = torch.argmax(q_net(batched_next_observations.view(K_val * num_agents, -1)), dim=1)
+                    action_next = torch.gather(next_q_vals, dim=1, index=argmax_next.view(K_val * num_agents, -1)).view(K_val, num_agents)
+                    total_next_q = mixing_net(action_next)
 
-                loss_for_backprop = (is_weight_tensor*loss).mean().to(gpu_device)
-                optimizer.zero_grad()
-                loss_for_backprop.backward()
-                torch.nn.utils.clip_grad_norm_(q_net.parameters(), max_norm=1.0) # for staiblity
-                optimizer.step()
+                # 3. Target and Loss (Explicit shape matching to fix broadcasting)
+                target = batched_rewards.sum(dim=1, keepdim=True) + GAMMA * total_next_q
+                
+                # MSE Loss with importance sampling weights, keeping shape (K, 1)
+                loss = loss_fn(total_q, target) * is_weight_tensor 
+                
+                # 4. Gradient Accumulation (Memory efficient scaling)
+                (loss.mean() / GRAD_ACCUM_STEPS).backward()
 
-                kpi_list.append((episode, loss_for_backprop.item(), batch_reward_sum.squeeze().mean().item(), epsilon))
-        
+                # Optimizer step every GRAD_ACCUM_STEPS
+                if (step + 1) % GRAD_ACCUM_STEPS == 0:
+                    torch.nn.utils.clip_grad_norm_(q_net.parameters(), max_norm=1.0)
+                    optimizer.step()
+                    optimizer.zero_grad() # Clear gradients to free memory
+
+                # 5. Update Priorities (Memory efficient: detach and use CPU)
+                with torch.no_grad():
+                    td_errors = torch.abs(total_q - target).view(-1).cpu().numpy()
+                    for i, idx in enumerate(idxs):
+                        memory.update(idx, td_errors[i])
+
+                # Log KPI (Use .item() to free GPU memory immediately)
+                kpi_list.append((episode, loss.mean().item(), batched_rewards.sum(dim=1).mean().item(), epsilon))
         print(f"Ended episode!")
         epsilon = max(epsilon * EPSILON_DECAY_FACTOR, MIN_EPSILON)
         simulator.reset(initial_seed + episode)
