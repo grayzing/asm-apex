@@ -2,6 +2,7 @@ from simulator import Simulator
 
 import time
 import gc
+import torch
 
 import numpy as np
 
@@ -104,12 +105,58 @@ class RandomSleepSimulator(Simulator):
     def run_simulation(self):
         super().run_simulation()
 
+class VDNSleepSimulator(Simulator):
+    def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
+        super().__init__(num_base_stations = num_base_stations, num_devices = num_devices, simulation_length_ms= simulation_length_ms, seed = seed)
+        self.q_net = torch.load("q_net.pth", weights_only=False, map_location=torch.device('cpu'))
+
+    def reset(self, seed):
+        super().reset(seed)
+
+    def take_observation(self, agent_id: int, simulator: Simulator) -> torch.Tensor:
+        return torch.from_numpy(np.concatenate(
+            [np.stack(
+                [
+                    simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]],
+                    simulator.radio_channel_model.sinr_dbm_matrix_per_slot[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
+                ],
+                axis=0
+                ).flatten(),
+                simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
+            ]
+        )).to(torch.float32)
+
+    def sleep_xapp(self, curr_step):
+        for agent in range(0,19):
+            obs = self.take_observation(agent, self)
+            action = int(torch.argmax(self.q_net(obs)))
+
+
+            sector_id = int(agent * 3 + (action // 4))
+            sleep_mode_id = int(action % 4)
+
+            self.sleep_mode_manager.set_sleep_mode(
+                        sector_id=sector_id,
+                        sleep_mode=sleep_mode_id,
+                        sector_manager=self.sector_manager
+                    )
+                
+    def step(self, step_number):
+        super().step(step_number)
+    def run_simulation(self):
+        super().run_simulation()
+"""
 if __name__ == "__main__":
     poop=209432
     sim = EnhancedSleepSimulator(19, 500, 500, seed=poop)
     sim.run_simulation()
     sim.kpi_handler.print_kpis(500)
     print(np.count_nonzero(sim.sleep_mode_manager.sector_sleep_mode_matrix))
+
+    sim4 = VDNSleepSimulator(19,500,500,seed=poop)
+    sim4.run_simulation()
+    sim4.kpi_handler.print_kpis(500)
+    print(np.count_nonzero(sim4.sleep_mode_manager.sector_sleep_mode_matrix))
 
     sim1 = BasicSleepSimulator(19,500,500,seed=poop)
     sim1.run_simulation()
@@ -125,4 +172,85 @@ if __name__ == "__main__":
     sim3.run_simulation()
     sim3.kpi_handler.print_kpis(500)
     print(np.count_nonzero(sim3.sleep_mode_manager.sector_sleep_mode_matrix))
+"""
+import numpy as np
+import matplotlib.pyplot as plt
+import gc
+
+# Import your simulator classes here
+# from experiment_suite import EnhancedSleepSimulator, VDNSleepSimulator, BasicSleepSimulator, NormalSimulator, RandomSimulator
+
+def run_simulation_batch(SimulatorClass, num_simulations=20, seed_start=1000):
+    p10_throughputs = []
+    avg_throughputs = []
+    active_sector_counts = []
+
+    for i in range(num_simulations):
+        seed = seed_start + i
+        # Assuming simulator takes (num_base_stations, num_devices, simulation_length_ms, seed)
+        sim = SimulatorClass(19, 500, 500, seed=seed)
+        sim.run_simulation()
+        
+        # Calculate KPIs
+        throughputs = sim.kpi_handler.calculate_throughput_mbps(500)
+        p10_throughputs.append(np.percentile(throughputs, 10))
+        avg_throughputs.append(np.mean(throughputs))
+        
+        # Calculate number of active sectors
+        active_sectors = np.count_nonzero(sim.sleep_mode_manager.sector_sleep_mode_matrix == 0)
+        active_sector_counts.append(active_sectors)
+        
+        # Clean up
+        del sim
+        gc.collect()
+        
+    return p10_throughputs, avg_throughputs, active_sector_counts
+
+# Define the methods to test
+methods = {
+    "Random": RandomSleepSimulator,
+    "Normal": Simulator,
+    "Enhanced": EnhancedSleepSimulator,
+    "Basic": BasicSleepSimulator,
+    "VDN": VDNSleepSimulator
+}
+
+results = {}
+for name, sim_class in methods.items():
+    print(f"Running {name} simulations...")
+    results[name] = run_simulation_batch(sim_class)
+
+# Plotting
+# 1. CDF Plots for Throughputs
+fig, axs = plt.subplots(1, 2, figsize=(14, 6))
+
+for name, (p10, avg, _) in results.items():
+    # Sort data for CDF
+    p10_sorted = np.sort(p10)
+    avg_sorted = np.sort(avg)
+    y = np.arange(1, len(p10_sorted) + 1) / len(p10_sorted)
+    
+    axs[0].plot(p10_sorted, y, label=f"{name} P10")
+    axs[1].plot(avg_sorted, y, label=f"{name} Avg")
+
+axs[0].set_title("CDF of 10th Percentile Throughput")
+axs[0].set_xlabel("Throughput (Mbps)")
+axs[0].set_ylabel("Probability")
+axs[0].legend()
+axs[0].grid(True)
+
+axs[1].set_title("CDF of Average Throughput")
+axs[1].set_xlabel("Throughput (Mbps)")
+axs[1].legend()
+axs[1].grid(True)
+plt.show()
+
+# 2. Box Plot for Active Sectors
+plt.figure(figsize=(10, 6))
+data_to_plot = [results[name][2] for name in methods.keys()]
+plt.boxplot(data_to_plot, labels=methods.keys())
+plt.title("Distribution of Active Sectors by Method")
+plt.ylabel("Number of Active Sectors")
+plt.grid(True)
+plt.show()
     
