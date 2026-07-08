@@ -14,13 +14,15 @@ import traceback
 # Hyperparameters
 C = 1000 # Target Q network update interval
 L = 30000 # Number of episodes to train for
-K = 1 # Minibatch size
+K = 2 # Minibatch size
 M = 2 # Number of steps per episode
 E = 0.99 # Initial epsilon
 S = 60000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
 MIN_EPSILON = 0.05 # Minimum epsilon
 GAMMA = 0.95 # Discount factor
+
+assert K >= 2, "Minibatch size must be greater than 1"
 
 # Filesystem stuff
 base_dir = "../sumtree"
@@ -309,15 +311,17 @@ if __name__ == "__main__":
                 batch_reward_sum = batched_rewards.sum(dim=1)
                 target = batch_reward_sum + GAMMA * total_next_q
                 #print(target.shape)
-                #print(f"Total q shape: {total_q}")
+                #print(f"Total q shape: {total_q.shape}")
                 
                 loss = loss_fn(total_q, target)
                 #print(loss.shape)
-
+                batch_priorities = torch.abs(total_q - target).squeeze().detach().cpu().numpy()
+                #print(batch_priorities)
                 # Update the priority
                 for i in prange(K):
                     idx = idxs[i]
-                    memory.update(idx, torch.abs(total_q - target).mean().item())
+                    memory.update(idx, batch_priorities[i])
+                    #print(batch_priorities[i])
 
                 loss_for_backprop = (is_weight_tensor*loss).mean()
                 optimizer.zero_grad()
