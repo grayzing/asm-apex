@@ -268,7 +268,7 @@ if __name__ == "__main__":
 
                 # Convert the data
 
-                is_weight_tensor = torch.FloatTensor(is_weight)
+                is_weight_tensor = torch.FloatTensor(is_weight).to(gpu)
                 batched_observations = torch.as_tensor(np.stack(observations).astype(np.float16)).to(gpu)
                 batched_actions = torch.as_tensor(np.stack(actions).astype(np.int32)).to(gpu)
                 batched_rewards = torch.as_tensor(np.stack(rewards).astype(np.float16)).to(gpu)
