@@ -1,35 +1,26 @@
-from simulator import Simulator
-
-import time
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
 import gc
 import torch
+from simulator import Simulator
 
-import numpy as np
+# --- Simulator Classes with Step-by-Step Logging ---
 
-from geometry_helper import GeometryHelper
-from base_station_manager import BaseStationManager
-from sector_manager import SectorManager
-from device_manager import DeviceManager
-from radio_channel_model import RadioChannelModel
-from handover_manager import RSRPBasedHandoverManager
-from mobility_helper import RandomWalkMobilityHelper, LinearWalkMobilityHelper
-from network_topology_helper import HexagonalNetworkTopologyHelperWithRandomDevicePlacements, HeterogenousHexagonalNetworkTopologyHelperWithRandomDevicePlacements
-from scheduler import QueueAwareProportionalFairPhysicalResourceBlockScheduler
-from traffic_generator import TrafficGenerator, BurstyTrafficGenerator
-from sleep_mode_manager import SleepModeManager
-from simulation_kpis_handler import SimulationKPIHandler
+class BaseSimulator(Simulator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sleeping_history = []
+    
+    def step(self, step_number):
+        super().step(step_number)
+        # Record number of sectors in a sleep mode (> 0)
+        num_sleeping = np.count_nonzero(self.sleep_mode_manager.sector_sleep_mode_matrix)
+        self.sleeping_history.append(num_sleeping)
 
-class EnhancedSleepSimulator(Simulator):
-    def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
-        super().__init__(num_base_stations = num_base_stations, num_devices = num_devices, simulation_length_ms= simulation_length_ms, seed = seed)
-
-        self.kpis = []
-
-    def reset(self, seed):
-        super().reset(seed)
-
+class EnhancedSleepSimulator(BaseSimulator):
+    # (Existing sleep_xapp logic remains the same)
     def sleep_xapp(self, curr_step):
-        # Put a random sector to sleep
         for sector in range(self.num_sectors):
             if self.sleep_mode_manager.sector_sleep_mode_matrix[sector] == 0:
                 attached_devices_indices = np.where(self.handover_manager.sector_device_association_matrix[sector,:] == 0)
@@ -41,216 +32,112 @@ class EnhancedSleepSimulator(Simulator):
                         rsrp_device_mask = (rsrp_device_slice >= -90) & (prb_utilization <= 0.9)
                         rsrp_device_mask[sector, :] = False
                         first_sector = np.argmax(np.any(rsrp_device_mask, axis=1))
-                        #print(first_sector)
-                        
                         self.handover_manager.manual_handover(first_sector, device, self.sector_manager, self.device_manager, self.radio_channel_model, self.sleep_mode_manager)
             if np.all(self.handover_manager.sector_device_association_matrix[sector, :] == 0):
-                #print(f"No devices attached to sector{sector}, putting to sleep")
-                #print(self.handover_manager.sector_device_association_matrix)
-                self.sleep_mode_manager.set_sleep_mode(
-                    sector_id=sector,
-                    sleep_mode=1,
-                    sector_manager=self.sector_manager
-                )
-    def step(self, step_number):
-        super().step(step_number)
-        self.kpis.append((
-            step_number,
-            self.kpi_handler.calculate_average_throughput_mbps(step_number),
-            self.kpi_handler.calculate_throughput_percentile(10,step_number)
-        ))
-    def run_simulation(self):
-        super().run_simulation()
+                self.sleep_mode_manager.set_sleep_mode(sector_id=sector, sleep_mode=1, sector_manager=self.sector_manager)
 
-class BasicSleepSimulator(Simulator):
-    def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
-        super().__init__(num_base_stations = num_base_stations, num_devices = num_devices, simulation_length_ms= simulation_length_ms, seed = seed)
-
-    def reset(self, seed):
-        super().reset(seed)
-
+class BasicSleepSimulator(BaseSimulator):
     def sleep_xapp(self, curr_step):
-        # Put a random sector to sleep
         for sector in range(self.num_sectors):
             if np.all(self.handover_manager.sector_device_association_matrix[sector, :] == 0) and self.sleep_mode_manager.sector_sleep_mode_matrix[sector] == 0:
-                #print(f"No devices attached to sector{sector}, putting to sleep")
-                #print(self.handover_manager.sector_device_association_matrix)
-                self.sleep_mode_manager.set_sleep_mode(
-                    sector_id=sector,
-                    sleep_mode=1,
-                    sector_manager=self.sector_manager
-                )
-    def step(self, step_number):
-        super().step(step_number)
-    def run_simulation(self):
-        super().run_simulation()
+                self.sleep_mode_manager.set_sleep_mode(sector_id=sector, sleep_mode=1, sector_manager=self.sector_manager)
 
-class RandomSleepSimulator(Simulator):
-    def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
-        super().__init__(num_base_stations = num_base_stations, num_devices = num_devices, simulation_length_ms= simulation_length_ms, seed = seed)
-
-    def reset(self, seed):
-        super().reset(seed)
-
+class RandomSleepSimulator(BaseSimulator):
     def sleep_xapp(self, curr_step):
-        # Put a random sector to sleep
-        self.sleep_mode_manager.set_sleep_mode(
-                    sector_id=self.rng.integers(0,self.num_sectors),
-                    sleep_mode=self.rng.integers(0,4),
-                    sector_manager=self.sector_manager
-                )
-                
-    def step(self, step_number):
-        super().step(step_number)
-    def run_simulation(self):
-        super().run_simulation()
+        self.sleep_mode_manager.set_sleep_mode(sector_id=self.rng.integers(0,self.num_sectors), sleep_mode=self.rng.integers(0,4), sector_manager=self.sector_manager)
 
-class VDNSleepSimulator(Simulator):
-    def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
-        super().__init__(num_base_stations = num_base_stations, num_devices = num_devices, simulation_length_ms= simulation_length_ms, seed = seed)
+class VDNSleepSimulator(BaseSimulator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.q_net = torch.load("q_net.pth", weights_only=False, map_location=torch.device('cpu'))
-
-    def reset(self, seed):
-        super().reset(seed)
-
-    def take_observation(self, agent_id: int, simulator: Simulator) -> torch.Tensor:
-        return torch.from_numpy(np.concatenate(
-            [np.stack(
-                [
-                    simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]],
-                    simulator.radio_channel_model.sinr_dbm_matrix_per_slot[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
-                ],
-                axis=0
-                ).flatten(),
-                simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
-            ]
-        )).to(torch.float32)
 
     def sleep_xapp(self, curr_step):
         for agent in range(0,19):
             obs = self.take_observation(agent, self)
             action = int(torch.argmax(self.q_net(obs)))
-
-
             sector_id = int(agent * 3 + (action // 4))
-            sleep_mode_id = int(action % 4)
+            self.sleep_mode_manager.set_sleep_mode(sector_id=sector_id, sleep_mode=int(action % 4), sector_manager=self.sector_manager)
 
-            self.sleep_mode_manager.set_sleep_mode(
-                        sector_id=sector_id,
-                        sleep_mode=sleep_mode_id,
-                        sector_manager=self.sector_manager
-                    )
-                
+    def take_observation(self, agent_id, simulator):
+        return torch.from_numpy(np.concatenate([np.stack([simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]], simulator.radio_channel_model.sinr_dbm_matrix_per_slot[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]], axis=0).flatten(), simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]])).to(torch.float32)
+
+import matplotlib.pyplot as plt
+
+# --- Base Class for Tracking ---
+class BaseTrackingSimulator(Simulator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sleeping_history = []
+    
     def step(self, step_number):
         super().step(step_number)
-    def run_simulation(self):
-        super().run_simulation()
-"""
-if __name__ == "__main__":
-    poop=209432
-    sim = EnhancedSleepSimulator(19, 500, 500, seed=poop)
-    sim.run_simulation()
-    sim.kpi_handler.print_kpis(500)
-    print(np.count_nonzero(sim.sleep_mode_manager.sector_sleep_mode_matrix))
+        # Count non-zero sleep modes as sleeping sectors
+        num_sleeping = np.count_nonzero(self.sleep_mode_manager.sector_sleep_mode_matrix)
+        self.sleeping_history.append(num_sleeping)
 
-    sim4 = VDNSleepSimulator(19,500,500,seed=poop)
-    sim4.run_simulation()
-    sim4.kpi_handler.print_kpis(500)
-    print(np.count_nonzero(sim4.sleep_mode_manager.sector_sleep_mode_matrix))
+# Inherit simulators from BaseTrackingSimulator (keep your existing logic inside)
+class EnhancedSleepSimulator(BaseTrackingSimulator, EnhancedSleepSimulator): pass
+class BasicSleepSimulator(BaseTrackingSimulator, BasicSleepSimulator): pass
+class RandomSleepSimulator(BaseTrackingSimulator, RandomSleepSimulator): pass
+class VDNSleepSimulator(BaseTrackingSimulator, VDNSleepSimulator): pass
+class NormalSimulator(BaseTrackingSimulator, Simulator): pass
 
-    sim1 = BasicSleepSimulator(19,500,500,seed=poop)
-    sim1.run_simulation()
-    sim1.kpi_handler.print_kpis(500)
-    print(np.count_nonzero(sim1.sleep_mode_manager.sector_sleep_mode_matrix))
-
-    sim2 = Simulator(19,500,500,seed=poop)
-    sim2.run_simulation()
-    sim2.kpi_handler.print_kpis(500)
-    print(np.count_nonzero(sim2.sleep_mode_manager.sector_sleep_mode_matrix))
-
-    sim3 = RandomSleepSimulator(19,500,500,seed=poop)
-    sim3.run_simulation()
-    sim3.kpi_handler.print_kpis(500)
-    print(np.count_nonzero(sim3.sleep_mode_manager.sector_sleep_mode_matrix))
-"""
-import numpy as np
-import matplotlib.pyplot as plt
-import gc
-
-# Import your simulator classes here
-# from experiment_suite import EnhancedSleepSimulator, VDNSleepSimulator, BasicSleepSimulator, NormalSimulator, RandomSimulator
-
-def run_simulation_batch(SimulatorClass, num_simulations=20, seed_start=1000):
-    p10_throughputs = []
-    avg_throughputs = []
-    active_sector_counts = []
-
-    for i in range(num_simulations):
-        seed = seed_start + i
-        # Assuming simulator takes (num_base_stations, num_devices, simulation_length_ms, seed)
-        sim = SimulatorClass(19, 500, 500, seed=seed)
+# --- Batch Execution & Export ---
+def run_experiment(SimulatorClass, method_name, n=20):
+    all_data = []
+    for i in range(n):
+        sim = SimulatorClass(19, 500, 500, seed=1000+i)
         sim.run_simulation()
         
-        # Calculate KPIs
-        throughputs = sim.kpi_handler.calculate_throughput_mbps(500)
-        p10_throughputs.append(np.percentile(throughputs, 10))
-        avg_throughputs.append(np.mean(throughputs))
-        
-        # Calculate number of active sectors
-        active_sectors = np.count_nonzero(sim.sleep_mode_manager.sector_sleep_mode_matrix == 0)
-        active_sector_counts.append(active_sectors)
-        
-        # Clean up
-        del sim
-        gc.collect()
-        
-    return p10_throughputs, avg_throughputs, active_sector_counts
+        tp = sim.kpi_handler.calculate_throughput_mbps(500)
+        all_data.append({
+            'Method': method_name,
+            'Trial': i,
+            'P10_Throughput': np.percentile(tp, 10),
+            'Avg_Throughput': np.mean(tp),
+            'Avg_Sleeping_Sectors': np.mean(sim.sleeping_history)
+        })
+        del sim; gc.collect()
+    return all_data
 
-# Define the methods to test
 methods = {
-    "Random": RandomSleepSimulator,
-    "Normal": Simulator,
-    "Enhanced": EnhancedSleepSimulator,
-    "Basic": BasicSleepSimulator,
+    "Random": RandomSleepSimulator, 
+    "Normal": NormalSimulator, 
+    "Enhanced": EnhancedSleepSimulator, 
+    "Basic": BasicSleepSimulator, 
     "VDN": VDNSleepSimulator
 }
 
-results = {}
-for name, sim_class in methods.items():
-    print(f"Running {name} simulations...")
-    results[name] = run_simulation_batch(sim_class)
+results = []
+for name, cls in methods.items():
+    print(f"Running 20 simulations for {name}...")
+    results.extend(run_experiment(cls, name))
 
-# Plotting
-# 1. CDF Plots for Throughputs
-fig, axs = plt.subplots(1, 2, figsize=(14, 6))
+# Save to CSV
+df = pd.DataFrame(results)
+df.to_csv("simulation_results.csv", index=False)
+print("Data saved to simulation_results.csv")
 
-for name, (p10, avg, _) in results.items():
-    # Sort data for CDF
-    p10_sorted = np.sort(p10)
-    avg_sorted = np.sort(avg)
-    y = np.arange(1, len(p10_sorted) + 1) / len(p10_sorted)
-    
-    axs[0].plot(p10_sorted, y, label=f"{name} P10")
-    axs[1].plot(avg_sorted, y, label=f"{name} Avg")
+# --- Accessible Visualization ---
+fig, axs = plt.subplots(1, 2, figsize=(14, 5))
+styles = [('-', 'o'), ('--', 's'), (':', '^'), ('-.', 'D'), ('-', 'x')]
 
-axs[0].set_title("CDF of 10th Percentile Throughput")
-axs[0].set_xlabel("Throughput (Mbps)")
-axs[0].set_ylabel("Probability")
-axs[0].legend()
-axs[0].grid(True)
+for (name, cls), (ls, marker) in zip(methods.items(), styles):
+    subset = df[df['Method'] == name]
+    for i, col in enumerate(['P10_Throughput', 'Avg_Throughput']):
+        data = np.sort(subset[col].values)
+        axs[i].plot(data, np.linspace(0, 1, len(data)), label=name, ls=ls, marker=marker, markevery=2)
 
-axs[1].set_title("CDF of Average Throughput")
-axs[1].set_xlabel("Throughput (Mbps)")
-axs[1].legend()
-axs[1].grid(True)
+axs[0].set_title("CDF: 10th Percentile Throughput"); axs[1].set_title("CDF: Average Throughput")
+[ax.legend() or ax.grid(True) for ax in axs]
+
+plt.figure(figsize=(10, 5))
+bp = plt.boxplot([df[df['Method']==m]['Avg_Sleeping_Sectors'] for m in methods.keys()], 
+                 labels=methods.keys(), patch_artist=True)
+colors = ['#E69F00', '#56B4E9', '#009E73', '#F0E442', '#0072B2']
+for patch, color in zip(bp['boxes'], colors):
+    patch.set_facecolor(color)
+    patch.set_hatch('//')
+
+plt.title("Average Number of Sleeping Sectors per Method")
 plt.show()
-
-# 2. Box Plot for Active Sectors
-plt.figure(figsize=(10, 6))
-data_to_plot = [results[name][2] for name in methods.keys()]
-plt.boxplot(data_to_plot, labels=methods.keys())
-plt.title("Distribution of Active Sectors by Method")
-plt.ylabel("Number of Active Sectors")
-plt.grid(True)
-plt.show()
-    
