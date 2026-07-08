@@ -297,7 +297,7 @@ if __name__ == "__main__":
                 # Update the priority
                 for i in prange(K):
                     idx = idxs[i]
-                    memory.update(idx, torch.abs(total_q - target).item())
+                    memory.update(idx, torch.abs(total_q - target).mean().item())
 
                 loss_for_backprop = (is_weight_tensor*loss).mean().to(gpu_device)
                 optimizer.zero_grad()
