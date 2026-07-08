@@ -11,19 +11,24 @@ import torch
 import time
 
 # Hyperparameters
-C = 500 # Target Q network update interval
-L = 5000 # Number of episodes to train for
-K = 64 # Minibatch size
+C = 1000 # Target Q network update interval
+L = 30000 # Number of episodes to train for
+K = 4 # Minibatch size
 M = 500 # Number of steps per episode
 E = 0.99 # Initial epsilon
-S = 10000 # Experience replay buffer size
+S = 60000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
 MIN_EPSILON = 0.05 # Minimum epsilon
 GAMMA = 0.95 # Discount factor
-GRAD_ACCUM_STEPS = 4
 
-gpu_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-cpu_device = torch.device('cpu')
+torch.set_default_device('cuda' if torch.cuda.is_available() else 'cpu')
+gpu = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+cpu = torch.device('cpu')
+
+class PERLogger:
+    def __init__(self) -> None:
+        #self.per_log = h5py.Dataset()
+        pass
 
 class SumTree:
     write = 0
@@ -152,29 +157,27 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
         p = self._get_priority(error)
         self.tree.update(idx, p)
 
-def to_device(data, device):
-    if isinstance(data, (list, tuple)):
-        return [d.to(device) if isinstance(d, torch.Tensor) else d for d in data]
-    return data.to(device)
-
 def take_observation(agent_id: int, simulator: Simulator) -> torch.Tensor:
-    # Concatenate and move to GPU immediately
-    obs = np.concatenate([
-        np.stack([
-            simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]],
-            simulator.radio_channel_model.sinr_dbm_matrix_per_slot[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
-        ], axis=0).flatten(),
-        simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
-    ])
-    return torch.from_numpy(obs).to(torch.float32).to(gpu_device)
+    return torch.from_numpy(np.concatenate(
+        [np.stack(
+            [
+                simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]],
+                simulator.radio_channel_model.sinr_dbm_matrix_per_slot[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
+            ],
+            axis=0
+            ).flatten(),
+            simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
+        ]
+    )).to(torch.float32)
 
 def epsilon_greedy(q_net: Q, observation: torch.Tensor, epsilon: float, rng=np.random.default_rng()) -> torch.Tensor:
-    if rng.uniform(0, 1) <= epsilon:
-        # Create directly on GPU
-        return torch.tensor(rng.integers(low=0, high=12), device=gpu_device)
-    # Network is already on GPU
-    with torch.no_grad():
-        return torch.argmax(q_net(observation.unsqueeze(0)))
+    epsilon_greedy_random_variable = rng.uniform(0,1)
+    if epsilon_greedy_random_variable <= epsilon:
+        # Take a random action
+        return torch.tensor(rng.integers(low=0,high=12))
+    # Otherwise, take the Q estimate
+    argmax_q = torch.argmax(q_net(observation))
+    return argmax_q
 
 if __name__ == "__main__":
     kpi_list = []
@@ -182,21 +185,21 @@ if __name__ == "__main__":
     memory: Memory = Memory(S)
     epsilon = E
     initial_seed = int(time.time())
-    
-    # Initialize networks on GPU
-    q_net = Q().to(gpu_device)
-    target_q_net = deepcopy(q_net).to(gpu_device)
-    mixing_net = MixingNetwork().to(gpu_device)
-    
+    q_net: Q = Q()
+    target_q_net: Q = deepcopy(q_net)
+    mixing_net: MixingNetwork = MixingNetwork()
     simulator: Simulator = Simulator(19, 500, M, seed=initial_seed)
     optimizer = torch.optim.Adam(params=q_net.parameters())
     loss_fn = torch.nn.MSELoss(reduction="none")
-
     for episode in range(1, L):
+        print(f"Starting episode: {episode}!")
         for step in range(M):
+            # Get Q for each agent
             total_observations = []
             total_actions = []
-            for agent in range(simulator.num_base_stations):
+            total_rewards = []
+            total_next_observations = []
+            for agent in range(0,simulator.num_base_stations):
                 observation_it = take_observation(agent, simulator)
                 action_it = epsilon_greedy(q_net, observation_it, epsilon, simulator.rng)
                 total_observations.append(observation_it)
@@ -226,12 +229,12 @@ if __name__ == "__main__":
                 reward_it = reward_sleep + reward_sla
 
                 total_next_observations.append(next_observation_it)
-                total_rewards.append(torch.tensor(reward_it).to(gpu_device))
+                total_rewards.append(torch.tensor(reward_it))
 
-            total_observations = torch.vstack(total_observations).to(gpu_device)
-            total_actions = torch.vstack(total_actions).to(gpu_device)
-            total_rewards = torch.vstack(total_rewards).to(gpu_device)
-            total_next_observations = torch.vstack(total_next_observations).to(gpu_device)
+            total_observations = torch.vstack(total_observations).to(cpu)
+            total_actions = torch.vstack(total_actions).to(cpu)
+            total_rewards = torch.vstack(total_rewards).to(cpu)
+            total_next_observations = torch.vstack(total_next_observations).to(cpu)
             # Placeholder error, change this!!
             memory.add(
                 sample={
@@ -244,54 +247,67 @@ if __name__ == "__main__":
             )
 
             if memory.tree.n_entries >= K:
-                # 1. Sample and move to GPU (Crucial: delete local references if possible)
                 observations, actions, rewards, next_observations, idxs, is_weight = memory.sample(K)
-                
-                is_weight_tensor = torch.as_tensor(is_weight, dtype=torch.float32, device=gpu_device).view(-1, 1)
-                batched_observations = torch.stack(observations).to(gpu_device).float()
-                batched_next_observations = torch.stack(next_observations).to(gpu_device).float()
-                batched_actions = torch.stack(actions).to(gpu_device)
-                batched_rewards = torch.stack(rewards).to(gpu_device)
+                #print(idxs)
+                is_weight_tensor = torch.FloatTensor(is_weight).to(gpu)
+                batched_observations = torch.stack(observations).to(gpu)
+                batched_actions = torch.stack(actions).to(gpu)
+                batched_rewards = torch.stack(rewards).to(gpu)
+                batched_next_observations = torch.stack(next_observations).to(gpu)
 
-                # 2. Forward Pass (Using views to minimize memory footprint)
-                K_val, num_agents, obs_dim = batched_observations.shape
-                
-                # Process through Q-network
-                q_values = q_net(batched_observations.view(K_val * num_agents, -1))
-                gathered_q = torch.gather(q_values, dim=1, index=batched_actions.view(K_val * num_agents, -1)).view(K_val, num_agents)
+                #print(batched_observations[0, 0, :10])
+                #print(batched_observations[1, 0, :10])
+
+                #print(batched_observations.shape)
+                #print(batched_actions.shape)
+                #print(batched_rewards.shape)
+                #print(batched_next_observations.shape)
+
+                batched_observations = batched_observations.float()
+                batched_next_observations = batched_next_observations.float()
+                batched_actions = batched_actions
+                batched_rewards = batched_rewards
+
+                K, num_agents, obs_dim = batched_observations.shape
+                q_values = q_net(batched_observations.view(K * num_agents, -1))# Shape: (K * num_agents, 12)
+
+                gathered_q = torch.gather(q_values, dim=1, index=batched_actions.view(K * num_agents, -1))
+                gathered_q = gathered_q.view(K, num_agents)
                 total_q = mixing_net(gathered_q)
 
-                # Double DQN: Target calculation
                 with torch.no_grad():
-                    next_q_vals = target_q_net(batched_next_observations.view(K_val * num_agents, -1))
-                    # Select action using online net
-                    argmax_next = torch.argmax(q_net(batched_next_observations.view(K_val * num_agents, -1)), dim=1)
-                    action_next = torch.gather(next_q_vals, dim=1, index=argmax_next.view(K_val * num_agents, -1)).view(K_val, num_agents)
-                    total_next_q = mixing_net(action_next)
+                    # Double deep Q target
+                    argmax_next_q_values = torch.argmax(q_net(batched_next_observations.view(K * num_agents, -1)),dim=1)
+                    # print(argmax_next_q_values.shape)
+                    next_q_values = target_q_net(batched_next_observations.view(K * num_agents, -1))
+                    # print(next_q_values.shape)
+                    action_next_q = torch.gather(next_q_values, dim=1, index=argmax_next_q_values.view(K * num_agents, -1))
+                    # print(action_next_q.shape)
+                    action_next_q = action_next_q.view(K, num_agents)
+                    total_next_q = mixing_net(action_next_q) # Shape: (K, 1)
+                    #print(f"Total next q: {total_next_q}")
 
-                # 3. Target and Loss (Explicit shape matching to fix broadcasting)
-                target = batched_rewards.sum(dim=1, keepdim=True) + GAMMA * total_next_q
+                batch_reward_sum = batched_rewards.sum(dim=1)
+                target = batch_reward_sum + GAMMA * total_next_q
+                #print(target.shape)
+                #print(f"Total q shape: {total_q}")
                 
-                # MSE Loss with importance sampling weights, keeping shape (K, 1)
-                loss = loss_fn(total_q, target) * is_weight_tensor 
-                
-                # 4. Gradient Accumulation (Memory efficient scaling)
-                (loss.mean() / GRAD_ACCUM_STEPS).backward()
+                loss = loss_fn(total_q, target)
+                #print(loss.shape)
 
-                # Optimizer step every GRAD_ACCUM_STEPS
-                if (step + 1) % GRAD_ACCUM_STEPS == 0:
-                    torch.nn.utils.clip_grad_norm_(q_net.parameters(), max_norm=1.0)
-                    optimizer.step()
-                    optimizer.zero_grad() # Clear gradients to free memory
+                # Update the priority
+                for i in prange(K):
+                    idx = idxs[i]
+                    memory.update(idx, torch.abs(total_q - target).mean().item())
 
-                # 5. Update Priorities (Memory efficient: detach and use CPU)
-                with torch.no_grad():
-                    td_errors = torch.abs(total_q - target).view(-1).cpu().numpy()
-                    for i, idx in enumerate(idxs):
-                        memory.update(idx, td_errors[i])
+                loss_for_backprop = (is_weight_tensor*loss).mean()
+                optimizer.zero_grad()
+                loss_for_backprop.backward()
+                torch.nn.utils.clip_grad_norm_(q_net.parameters(), max_norm=1.0) # for staiblity
+                optimizer.step()
 
-                # Log KPI (Use .item() to free GPU memory immediately)
-                kpi_list.append((episode, loss.mean().item(), batched_rewards.sum(dim=1).mean().item(), epsilon))
+                kpi_list.append((episode, loss_for_backprop.item(), batch_reward_sum.squeeze().mean().item(), epsilon))
+        
         print(f"Ended episode!")
         epsilon = max(epsilon * EPSILON_DECAY_FACTOR, MIN_EPSILON)
         simulator.reset(initial_seed + episode)
