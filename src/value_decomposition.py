@@ -12,15 +12,15 @@ import time
 import traceback
 
 # Hyperparameters
-C = 1000 # Target Q network update interval
 L = 5000 # Number of episodes to train for
-K = 64 # Minibatch size
+K = 2 # Minibatch size
 M = 100 # Number of steps per episode
 E = 0.90 # Initial epsilon
 S = 30000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
 MIN_EPSILON = 0.05 # Minimum epsilon
 GAMMA = 0.99 # Discount factor
+TAU = 0.005 # Polyak averaging factor
 
 assert K >= 2, "Minibatch size must be greater than 1"
 
@@ -207,7 +207,7 @@ if __name__ == "__main__":
     simulator: Simulator = Simulator(19, 500, M, seed=initial_seed)
     simulator.step(0)
     optimizer = torch.optim.AdamW(params=q_net.parameters(), lr=1e-4)
-    loss_fn = torch.nn.HuberLoss(reduction="none")
+    loss_fn = torch.nn.SmoothL1Loss(reduction="none")
     for episode in range(1, L):
         print(f"Starting episode: {episode}!")
         for step in range(M):
@@ -330,22 +330,14 @@ if __name__ == "__main__":
                 optimizer.step()
 
                 kpi_list.append((episode, loss_for_backprop.item(), batch_reward_sum.squeeze().mean().item(), epsilon))
-        
+
+            # Polyak averaging
+            for target_param, online_param in zip(target_q_net.parameters(), q_net.parameters()):
+                target_param.data.copy_(TAU * online_param.data + (1.0 - TAU) * target_param.data)
         print(f"Ended episode!")
         epsilon = max(epsilon * EPSILON_DECAY_FACTOR, MIN_EPSILON)
         print(f"Restarting simulator with seed {initial_seed + episode}")
         simulator.reset(initial_seed + episode)
-
-        # Update target Q parameters
-        if episode % C == 0:
-            print("Attemping to update target Q parameters...")
-            try:
-                target_q_net.load_state_dict(q_net.state_dict())
-            except Exception as e:
-                print("An error occurred:")
-                traceback.print_exc()
-            finally:
-                print("Target Q parameters successfully updated!")
 
         # Saving some stuff
         if episode % 20 == 0:
