@@ -15,7 +15,7 @@ import traceback
 C = 1000 # Target Q network update interval
 L = 5000 # Number of episodes to train for
 K = 64 # Minibatch size
-M = 200 # Number of steps per episode
+M = 100 # Number of steps per episode
 E = 0.90 # Initial epsilon
 S = 30000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
@@ -206,8 +206,8 @@ if __name__ == "__main__":
     mixing_net: MixingNetwork = MixingNetwork()
     simulator: Simulator = Simulator(19, 500, M, seed=initial_seed)
     simulator.step(0)
-    optimizer = torch.optim.Adam(params=q_net.parameters())
-    loss_fn = torch.nn.MSELoss(reduction="none")
+    optimizer = torch.optim.AdamW(params=q_net.parameters(), lr=1e-4)
+    loss_fn = torch.nn.HuberLoss(reduction="none")
     for episode in range(1, L):
         print(f"Starting episode: {episode}!")
         for step in range(M):
