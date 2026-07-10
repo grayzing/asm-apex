@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def plot_training_results(csv_file='training_log.csv', window_size=50):
+def plot_training_results(csv_file='training_log.csv', window_size=2):
     # Load the data
     df = pd.read_csv(csv_file)
     

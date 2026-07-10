@@ -332,8 +332,10 @@ if __name__ == "__main__":
                 kpi_list.append((episode, loss_for_backprop.item(), batch_reward_sum.squeeze().mean().item(), epsilon))
 
             # Polyak averaging
-            for target_param, online_param in zip(target_q_net.parameters(), q_net.parameters()):
-                target_param.data.copy_(TAU * online_param.data + (1.0 - TAU) * target_param.data)
+            with torch.no_grad():
+                for target_param, online_param in zip(target_q_net.parameters(), q_net.parameters()):
+                    target_param.data.mul_(1.0 - TAU)
+                    target_param.data.add_(TAU * online_param.data)
         print(f"Ended episode!")
         epsilon = max(epsilon * EPSILON_DECAY_FACTOR, MIN_EPSILON)
         print(f"Restarting simulator with seed {initial_seed + episode}")
