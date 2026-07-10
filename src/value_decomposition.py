@@ -13,14 +13,14 @@ import traceback
 
 # Hyperparameters
 C = 1000 # Target Q network update interval
-L = 30000 # Number of episodes to train for
-K = 2 # Minibatch size
-M = 2 # Number of steps per episode
-E = 0.99 # Initial epsilon
-S = 60000 # Experience replay buffer size
+L = 5000 # Number of episodes to train for
+K = 64 # Minibatch size
+M = 200 # Number of steps per episode
+E = 0.90 # Initial epsilon
+S = 30000 # Experience replay buffer size
 EPSILON_DECAY_FACTOR = 0.999 # Epsilon decay factor
 MIN_EPSILON = 0.05 # Minimum epsilon
-GAMMA = 0.95 # Discount factor
+GAMMA = 0.99 # Discount factor
 
 assert K >= 2, "Minibatch size must be greater than 1"
 
