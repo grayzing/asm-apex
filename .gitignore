@@ -5,9 +5,6 @@ __pycache__/
 # Torch
 *.pth
 
-#KPI
-*.csv
-
 # dont track sumtree
 *.dat
 
