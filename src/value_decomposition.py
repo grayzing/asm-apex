@@ -13,7 +13,7 @@ import traceback
 
 # Hyperparameters
 L = 5000 # Number of episodes to train for
-K = 2 # Minibatch size
+K = 64 # Minibatch size
 M = 100 # Number of steps per episode
 E = 0.90 # Initial epsilon
 S = 30000 # Experience replay buffer size
@@ -231,8 +231,8 @@ if __name__ == "__main__":
             for agent in range(0, simulator.num_base_stations):
                 next_observation_it = take_observation(agent, simulator)
                 # Reward calculations
-                alpha = 1.25
-                beta = 1.5
+                alpha = 1
+                beta = 1.7
 
                 ratio_of_active_sectors = np.count_nonzero(simulator.sleep_mode_manager.sector_sleep_mode_matrix == 0) / simulator.num_base_stations
                 ratio_of_sm1_sectors = np.count_nonzero(simulator.sleep_mode_manager.sector_sleep_mode_matrix == 1) / simulator.num_base_stations
