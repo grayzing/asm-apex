@@ -37,7 +37,6 @@ class SleepModeManager:
 
         return
 
-
     def get_sector_sleep_mode_indices(self) -> np.ndarray:
         sector_sleep_mode_indices: np.ndarray = np.where(self.sector_sleep_mode_matrix > 0)
         return sector_sleep_mode_indices

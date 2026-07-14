@@ -15,6 +15,7 @@ from scheduler import QueueAwareProportionalFairPhysicalResourceBlockScheduler
 from traffic_generator import TrafficGenerator, BurstyTrafficGenerator
 from sleep_mode_manager import SleepModeManager
 from simulation_kpis_handler import SimulationKPIHandler
+from power_consumption_helper import RadioUnitPowerConsumptionHelper
 
 class Simulator:
     def __init__(self, num_base_stations: int, num_devices: int, simulation_length_ms: int = 600_000, seed: int = 72288026) -> None:
@@ -40,6 +41,7 @@ class Simulator:
 
         self.scheduler = QueueAwareProportionalFairPhysicalResourceBlockScheduler(num_sectors=self.network_topology_helper.num_sectors, num_devices=self.num_devices)
         self.kpi_handler = SimulationKPIHandler(self.num_devices, self.num_sectors)
+        self.power_consumption_handler = RadioUnitPowerConsumptionHelper(self.num_sectors)
 
     def reset(self, seed):
         if seed is None:
@@ -65,6 +67,7 @@ class Simulator:
         self.traffic_generator.generate_device_downlink_bits_matrix()
 
         self.kpi_handler.total_transmitted_bits_per_device = np.zeros(self.num_devices, dtype=np.float64)
+        self.power_consumption_handler = RadioUnitPowerConsumptionHelper(self.num_sectors)
 
         gc.collect()
 
