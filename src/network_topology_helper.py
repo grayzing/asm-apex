@@ -59,7 +59,7 @@ class HexagonalNetworkTopologyHelperWithRandomDevicePlacements(NetworkTopologyHe
         
         axial_coords = []
         
-        for ring in [1, 2, 3]:
+        for ring in [1, 2]:
             q = ring
             r = 0
             for direction in range(6):
@@ -107,7 +107,7 @@ class HeterogenousHexagonalNetworkTopologyHelperWithRandomDevicePlacements(Hexag
         self.reuse_frequencies_ghz = np.array([35.0, 37.0, 39.0], dtype=np.float32)
         self.sector_manager.tx_power_dbm_matrix = np.full((self.sector_manager.num_sectors, ), 35.0, dtype=np.float32) 
         self.sector_manager.bandwidth_mhz_matrix = np.full((self.sector_manager.num_sectors, ), 100.0, dtype=np.float32) 
-        self.sector_manager.sector_numerology_matrix = np.full((self.sector_manager.num_sectors, ), 3, dtype=np.int8) 
+        self.sector_manager.sector_numerology_matrix = np.full((self.sector_manager.num_sectors, ), 2, dtype=np.int8) 
 
     def generate_base_station_positions(self):
         super().generate_base_station_positions()

@@ -49,10 +49,10 @@ class RandomSleepSimulator(BaseSimulator):
 class VDNSleepSimulator(BaseSimulator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.q_net = torch.load("q_net.pth", weights_only=False, map_location=torch.device('cpu'))
+        self.q_net = torch.load("q_net_adjust_reward_scale.pth", weights_only=False, map_location=torch.device('cpu'))
 
     def sleep_xapp(self, curr_step):
-        for agent in range(0,31):
+        for agent in range(0,19):
             obs = self.take_observation(agent, self)
             action = int(torch.argmax(self.q_net(obs)))
             sector_id = int(agent * 3 + (action // 4))
@@ -86,10 +86,10 @@ class NormalSimulator(BaseTrackingSimulator, Simulator): pass
 def run_experiment(SimulatorClass, method_name, n=20):
     all_data = []
     for i in range(n):
-        sim = SimulatorClass(31, 500, 500, seed=1000+i)
+        sim = SimulatorClass(19, 500, 100, seed=5000+i)
         sim.run_simulation()
         
-        tp = sim.kpi_handler.calculate_throughput_mbps(500)
+        tp = sim.kpi_handler.calculate_throughput_mbps(100)
         all_data.append({
             'Method': method_name,
             'Trial': i,

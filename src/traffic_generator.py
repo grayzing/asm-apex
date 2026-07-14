@@ -15,28 +15,25 @@ class TrafficGenerator(ABC):
 class BurstyTrafficGenerator(TrafficGenerator):
     def __init__(self, num_devices, window_length, 
                  on_shape=2.5, off_shape=1.5, 
-                 high_rate=1e6, low_rate=1e3, seed=24):
+                 high_rate=1e6, low_rate=0, seed=24):
         super().__init__(num_devices, window_length, seed)
         self.on_shape = on_shape
         self.off_shape = off_shape
         self.high_rate = high_rate
         self.low_rate = low_rate
+        self.rate_variance = 3e6
 
     def generate_device_downlink_bits_matrix(self):
         for i in range(self.num_devices):
             t = 0
             while t < self.window_length:
-                # Decide duration for ON (High) and OFF (Low) states
-                # Using Pareto to get heavy-tailed burst lengths
                 on_duration = int(self.rng.pareto(self.on_shape) * 10 + 5)
                 off_duration = int(self.rng.pareto(self.off_shape) * 50 + 10)
                 
-                # Fill ON period
                 end_on = min(t + on_duration, self.window_length)
                 self.device_downlink_bits_matrix[i, t:end_on] = self.high_rate
                 t = end_on
                 
-                # Fill OFF period
                 if t < self.window_length:
                     end_off = min(t + off_duration, self.window_length)
                     self.device_downlink_bits_matrix[i, t:end_off] = self.low_rate
