@@ -25,39 +25,7 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
         self.alpha = 1.0
         self.ema_beta = 0.95  # Smoothing history window parameter for Proportional Fair
 
-        # 3GPP TS 38.104 Transmission Bandwidth Configuration Lookup Tables
-        # Format: { 'FR1'/'FR2': { scs_khz: { bandwidth_mhz: num_prbs } } }
-        self._3gpp_prb_table = {
-            'FR1': {
-                15: {5: 25, 10: 52, 15: 79, 20: 106, 25: 133, 30: 160, 40: 216, 50: 270},
-                30: {5: 11, 10: 24, 15: 38, 20: 51, 25: 65, 30: 78, 40: 106, 50: 133, 60: 162, 70: 189, 80: 217, 90: 245, 100: 273},
-                60: {10: 11, 15: 18, 20: 24, 25: 31, 30: 38, 40: 51, 50: 65, 60: 79, 70: 93, 80: 107, 90: 121, 100: 135}
-            },
-            'FR2': {
-                60:  {50: 66, 100: 132, 200: 264},
-                120: {50: 32, 100: 66,  200: 132, 400: 264}
-            }
-        }
-
-    def _get_3gpp_prbs(self, center_freq_ghz: float, numerology: int, bandwidth_mhz: float) -> int:
-        """Helper to safely parse and match 3GPP TS 38.104 configurations[cite: 1]."""
-        # 1. Determine Frequency Range
-        fr = 'FR2' if center_freq_ghz > 24.0 else 'FR1'
-        
-        # 2. Map numerology to Subcarrier Spacing (SCS)
-        scs = 15 * (2 ** numerology)
-        
-        # Round bandwidth to handle floating point mismatches (e.g., 20.0)
-        bw = int(round(bandwidth_mhz))
-        
-        try:
-            return self._3gpp_prb_table[fr][scs][bw]
-        except KeyError:
-            # Fallback warning if a non-standard or unlisted 3GPP configuration occurs
-            import warnings
-            fallback_prb = int(bandwidth_mhz * 5)
-            warnings.warn(f"Config combination (FR: {fr}, SCS: {scs}kHz, BW: {bw}MHz) not found in 3GPP spec tables. Falling back to linear calculation ({fallback_prb} PRBs).")
-            return fallback_prb
+    
 
     def schedule(self, sector_manager: SectorManager, radio_channel_model: RadioChannelModel, traffic_generator: TrafficGenerator, handover_manager: HandoverManager, device_manager: DeviceManager, sleep_mode_manager: SleepModeManager, step: int):
         # 1. Map current SINR array values into the underlying link spectral efficiencies (bits/RE)
@@ -80,7 +48,7 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
         # =========================================================================
         total_prbs_per_sector = np.zeros(self.num_sectors, dtype=np.int32)
         for sector_idx in range(self.num_sectors):
-            total_prbs_per_sector[sector_idx] = self._get_3gpp_prbs(
+            total_prbs_per_sector[sector_idx] = radio_channel_model._get_3gpp_prbs(
                 center_freq_ghz=sector_manager.center_freq_ghz_matrix[sector_idx],
                 numerology=sector_manager.sector_numerology_matrix[sector_idx],
                 bandwidth_mhz=sector_manager.bandwidth_mhz_matrix[sector_idx]
