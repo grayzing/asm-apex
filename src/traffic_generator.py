@@ -15,13 +15,12 @@ class TrafficGenerator(ABC):
 class BurstyTrafficGenerator(TrafficGenerator):
     def __init__(self, num_devices, window_length, 
                  on_shape=2.5, off_shape=1.5, 
-                 high_rate=1e6, low_rate=0, seed=24):
+                 high_rate=3e6, low_rate=0, seed=24):
         super().__init__(num_devices, window_length, seed)
         self.on_shape = on_shape
         self.off_shape = off_shape
         self.high_rate = high_rate
         self.low_rate = low_rate
-        self.rate_variance = 3e6
 
     def generate_device_downlink_bits_matrix(self):
         for i in range(self.num_devices):

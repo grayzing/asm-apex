@@ -38,10 +38,10 @@ class SumTree:
         self.capacity = capacity
         self.tree = np.zeros(2 * capacity - 1)
         self.data = {
-            "observations": np.memmap(f'{base_dir}/observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,18018)),
+            "observations": np.memmap(f'{base_dir}/observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,7218)),
             "actions": np.memmap(f'{base_dir}/actions.dat', dtype=np.int32, mode='w+', shape=(capacity,19,1)),
             "rewards": np.memmap(f'{base_dir}/rewards.dat', dtype=np.float16, mode='w+', shape=(capacity,19,1)),
-            "next_observations": np.memmap(f'{base_dir}/next_observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,18018))
+            "next_observations": np.memmap(f'{base_dir}/next_observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,7218))
         }
         self.n_entries = 0
         self.rng = rng
@@ -204,7 +204,7 @@ if __name__ == "__main__":
     q_net: Q = Q()
     target_q_net: Q = deepcopy(q_net)
     mixing_net: MixingNetwork = MixingNetwork()
-    simulator: Simulator = Simulator(19, 500, M, seed=initial_seed)
+    simulator: Simulator = Simulator(19, 200, M, seed=initial_seed)
     simulator.step(0)
     optimizer = torch.optim.AdamW(params=q_net.parameters(), lr=1e-4)
     loss_fn = torch.nn.SmoothL1Loss(reduction="none")
@@ -231,20 +231,13 @@ if __name__ == "__main__":
             for agent in range(0, simulator.num_base_stations):
                 next_observation_it = take_observation(agent, simulator)
                 # Reward calculations
-                alpha = 1
-                beta = 2
+                alpha = 0.8
+                beta = 0.8
 
-                ratio_of_active_sectors = np.count_nonzero(simulator.sleep_mode_manager.sector_sleep_mode_matrix == 0) / simulator.num_sectors
-                ratio_of_sm1_sectors = np.count_nonzero(simulator.sleep_mode_manager.sector_sleep_mode_matrix == 1) / simulator.num_sectors
-                ratio_of_sm2_sectors = np.count_nonzero(simulator.sleep_mode_manager.sector_sleep_mode_matrix == 2) / simulator.num_sectors
-                ratio_of_sm3_sectors = np.count_nonzero(simulator.sleep_mode_manager.sector_sleep_mode_matrix == 3) / simulator.num_sectors
+                reward_ee = simulator.power_consumption_handler.calculate_energy_efficiency(simulator.sleep_mode_manager, simulator.kpi_handler, step)
+                penalty_sla_violation = np.sum(np.where(simulator.kpi_handler.calculate_throughput_mbps(step) <= 1.0))
 
-                ratio_of_sla_acceptable_devices = np.count_nonzero(simulator.kpi_handler.calculate_throughput_mbps(step) >= 8.0) / simulator.num_devices
-
-                reward_sleep = alpha * -3 * ratio_of_active_sectors + ratio_of_sm1_sectors + 3 * ratio_of_sm2_sectors + 6 * ratio_of_sm3_sectors
-                reward_sla = beta * 6 * ratio_of_sla_acceptable_devices
-                reward_it = reward_sleep + reward_sla
-
+                reward_it = alpha * reward_ee - beta * penalty_sla_violation
                 total_next_observations.append(next_observation_it)
                 total_rewards.append(torch.tensor(reward_it))
 
