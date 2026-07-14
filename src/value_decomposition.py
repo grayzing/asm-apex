@@ -247,7 +247,7 @@ if __name__ == "__main__":
                 beta = 0.8
 
                 reward_ee = simulator.power_consumption_handler.calculate_energy_efficiency(simulator.sleep_mode_manager, simulator.kpi_handler, step)
-                penalty_sla_violation = np.sum(simulator.kpi_handler.calculate_throughput_mbps(step) <= 1.0)
+                penalty_sla_violation = np.sum(simulator.kpi_handler.calculate_throughput_mbps(step) <= 1.0) / simulator.num_devices
                 reward_it = alpha * reward_ee - beta * penalty_sla_violation
                 total_next_observations.append(next_observation_it)
                 total_rewards.append(torch.tensor(reward_it))
