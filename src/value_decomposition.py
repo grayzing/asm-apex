@@ -38,10 +38,10 @@ class SumTree:
         self.capacity = capacity
         self.tree = np.zeros(2 * capacity - 1)
         self.data = {
-            "observations": np.memmap(f'{base_dir}/observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,7218)),
+            "observations": np.memmap(f'{base_dir}/observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,3636)),
             "actions": np.memmap(f'{base_dir}/actions.dat', dtype=np.int32, mode='w+', shape=(capacity,19,1)),
             "rewards": np.memmap(f'{base_dir}/rewards.dat', dtype=np.float16, mode='w+', shape=(capacity,19,1)),
-            "next_observations": np.memmap(f'{base_dir}/next_observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,7218))
+            "next_observations": np.memmap(f'{base_dir}/next_observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,3636))
         }
         self.n_entries = 0
         self.rng = rng
@@ -174,15 +174,27 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
         self.tree.update(idx, p)
 
 def take_observation(agent_id: int, simulator: Simulator) -> torch.Tensor:
+    neighbor_indices = simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]
+    
+    sinr = simulator.radio_channel_model.sinr_dbm_matrix_per_slot[neighbor_indices]
+    
+    # Normalize SINR from [-20, 35] to [0.0, 1.0] and clamp boundaries
+    normalized_sinr = np.clip((sinr - (-20.0)) / 55.0, 0.0, 1.0)
+    
+    sleep_modes = simulator.sleep_mode_manager.sector_sleep_mode_matrix[neighbor_indices]
+    
+    device_total_bits = np.sum(simulator.traffic_generator.device_downlink_bits_matrix, axis=1) # [num_devices]
+    
+    sector_buffer_bits = np.dot(simulator.handover_manager.sector_device_association_matrix, device_total_bits) # [num_sectors][cite: 14]
+    
+    sector_buffer_megabits = sector_buffer_bits / 1e6
+    neighbor_buffers_megabits = sector_buffer_megabits[neighbor_indices]
+    
     return torch.from_numpy(np.concatenate(
-        [np.stack(
-            [
-                simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]],
-                simulator.radio_channel_model.sinr_dbm_matrix_per_slot[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
-            ],
-            axis=0
-            ).flatten(),
-            simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
+        [
+            normalized_sinr.flatten(),
+            sleep_modes,
+            np.log10(1 + neighbor_buffers_megabits)
         ]
     )).to(torch.float32).to(gpu)
 
@@ -235,8 +247,7 @@ if __name__ == "__main__":
                 beta = 0.8
 
                 reward_ee = simulator.power_consumption_handler.calculate_energy_efficiency(simulator.sleep_mode_manager, simulator.kpi_handler, step)
-                penalty_sla_violation = np.sum(np.where(simulator.kpi_handler.calculate_throughput_mbps(step) <= 1.0))
-
+                penalty_sla_violation = np.sum(simulator.kpi_handler.calculate_throughput_mbps(step) <= 1.0)
                 reward_it = alpha * reward_ee - beta * penalty_sla_violation
                 total_next_observations.append(next_observation_it)
                 total_rewards.append(torch.tensor(reward_it))

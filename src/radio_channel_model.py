@@ -143,9 +143,6 @@ class RadioChannelModel:
         noise_denominator_mw = interference_mw_matrix + thermal_noise_mw
         noise_denominator_dbm = 10 * np.log10(noise_denominator_mw)
 
-        self.sinr_dbm_matrix_per_slot = np.minimum(
-            35.0,
-            self.received_power_dbm_matrix_per_resource_element - noise_denominator_dbm,
-        )
+        self.sinr_dbm_matrix_per_slot = np.clip(self.received_power_dbm_matrix_per_resource_element - noise_denominator_dbm, -20, 35)
 
         
