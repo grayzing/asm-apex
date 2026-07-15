@@ -6,6 +6,8 @@ import torch
 from simulator import Simulator
 from power_consumption_helper import RadioUnitPowerConsumptionHelper  # Import our helper
 
+NUM_AGENTS = 7
+
 # --- Simulator Classes with Step-by-Step Logging ---
 
 class BaseSimulator(Simulator):
@@ -64,35 +66,23 @@ class VDNSleepSimulator(BaseSimulator):
         self.q_net = torch.load("q_net.pth", weights_only=False, map_location=torch.device('cpu'))
 
     def sleep_xapp(self, curr_step):
-        for agent in range(0,19):
+        for agent in range(0,NUM_AGENTS):
             obs = self.take_observation(agent, self)
             action = int(torch.argmax(self.q_net(obs)))
             sector_id = int(agent * 3 + (action // 4))
             self.sleep_mode_manager.set_sleep_mode(sector_id=sector_id, sleep_mode=int(action % 4), sector_manager=self.sector_manager)
 
     def take_observation(self, agent_id, simulator):
-        neighbor_indices = simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]
-    
-        sinr = simulator.radio_channel_model.sinr_dbm_matrix_per_slot[neighbor_indices]
-        
-        # Normalize SINR from [-20, 35] to [0.0, 1.0] and clamp boundaries
-        normalized_sinr = np.clip((sinr - (-20.0)) / 55.0, 0.0, 1.0)
-        
-        sleep_modes = simulator.sleep_mode_manager.sector_sleep_mode_matrix[neighbor_indices]
-        
-        device_total_bits = np.sum(simulator.traffic_generator.device_downlink_bits_matrix, axis=1) # [num_devices]
-        
-        sector_buffer_bits = np.dot(simulator.handover_manager.sector_device_association_matrix, device_total_bits) # [num_sectors]
-        
-        sector_buffer_megabits = sector_buffer_bits / 1e6
-        neighbor_buffers_megabits = sector_buffer_megabits[neighbor_indices]
-        
         return torch.from_numpy(np.concatenate(
+        [np.stack(
             [
-                normalized_sinr.flatten(),
-                sleep_modes,
-                np.log10(1 + neighbor_buffers_megabits)
-            ]
+                simulator.radio_channel_model.received_power_dbm_matrix_per_resource_element[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]],
+                simulator.radio_channel_model.sinr_dbm_matrix_per_slot[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
+            ],
+            axis=0
+            ).flatten(),
+            simulator.sleep_mode_manager.sector_sleep_mode_matrix[simulator.sector_manager.neighboring_sectors_indices_matrix[agent_id]]
+        ]
         )).to(torch.float32)
 
 class NormalSimulator(BaseSimulator):
@@ -103,7 +93,7 @@ class NormalSimulator(BaseSimulator):
 def run_experiment(SimulatorClass, method_name, n=20):
     all_data = []
     for i in range(n):
-        sim = SimulatorClass(19, 200, 100, seed=5000+i)
+        sim = SimulatorClass(NUM_AGENTS, 200, 100, seed=5000+i)
         sim.run_simulation()
         
         tp = sim.kpi_handler.calculate_throughput_mbps(100)
@@ -119,10 +109,9 @@ def run_experiment(SimulatorClass, method_name, n=20):
     return all_data
 
 methods = {
-    "Random": RandomSleepSimulator, 
-    "Normal": NormalSimulator, 
-    "Enhanced": EnhancedSleepSimulator, 
-    "Basic": BasicSleepSimulator, 
+    "ALL-ON": NormalSimulator, 
+    "Liang et al.": EnhancedSleepSimulator, 
+    "SM1": BasicSleepSimulator, 
     "VDN": VDNSleepSimulator
 }
 

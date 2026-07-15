@@ -59,7 +59,7 @@ class HexagonalNetworkTopologyHelperWithRandomDevicePlacements(NetworkTopologyHe
         
         axial_coords = []
         
-        for ring in [1, 2, 3]:
+        for ring in [1]:
             q = ring
             r = 0
             for direction in range(6):
@@ -80,7 +80,6 @@ class HexagonalNetworkTopologyHelperWithRandomDevicePlacements(NetworkTopologyHe
             base_station_positions.append([x, y, 10.0]) # Default Z=10 for micros
 
         self.base_station_manager.base_station_position_matrix = np.array(base_station_positions[:self.num_base_stations], dtype=np.float32)
-
         # Now we also populate the neighboring sectors.
         sector_positions: np.ndarray = self.base_station_manager.get_all_positions()[self.sector_manager.sector_parent_base_station_vector] # M x 3
         sector_distance_matrix: np.ndarray = cdist(sector_positions, sector_positions).astype(np.float32) + 1e-9

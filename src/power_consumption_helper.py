@@ -121,10 +121,7 @@ class RadioUnitPowerConsumptionHelper:
         return np.float32(np.sum(self.power_consumption_sector_matrix))
 
     def calculate_energy_efficiency(self, sleep_mode_manager: SleepModeManager, kpi_handler: SimulationKPIHandler, step: int) -> float:
-        """
-        Calculates Network Energy Efficiency (Mbits/Joule).
-        """
-        throughput_mbps = kpi_handler.calculate_throughput_mbps(step)
+        throughput_mbps = np.sum(kpi_handler.calculate_throughput_mbps(step))
         total_power_watts = self.calculate_total_power(sleep_mode_manager)
         
         if total_power_watts == 0:
