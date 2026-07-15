@@ -38,10 +38,10 @@ class SumTree:
         self.capacity = capacity
         self.tree = np.zeros(2 * capacity - 1)
         self.data = {
-            "observations": np.memmap(f'{base_dir}/observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,18018)),
+            "observations": np.memmap(f'{base_dir}/observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,7218)),
             "actions": np.memmap(f'{base_dir}/actions.dat', dtype=np.int32, mode='w+', shape=(capacity,19,1)),
             "rewards": np.memmap(f'{base_dir}/rewards.dat', dtype=np.float16, mode='w+', shape=(capacity,19,1)),
-            "next_observations": np.memmap(f'{base_dir}/next_observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,18018))
+            "next_observations": np.memmap(f'{base_dir}/next_observations.dat', dtype=np.float16, mode='w+', shape=(capacity,19,7218))
         }
         self.n_entries = 0
         self.rng = rng
@@ -204,7 +204,7 @@ if __name__ == "__main__":
     q_net: Q = Q()
     target_q_net: Q = deepcopy(q_net)
     mixing_net: MixingNetwork = MixingNetwork()
-    simulator: Simulator = Simulator(19, 500, M, seed=initial_seed)
+    simulator: Simulator = Simulator(19, 200, M, seed=initial_seed)
     simulator.step(0)
     optimizer = torch.optim.AdamW(params=q_net.parameters(), lr=1e-4)
     loss_fn = torch.nn.SmoothL1Loss(reduction="none")
