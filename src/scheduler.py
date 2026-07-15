@@ -30,14 +30,10 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
         radio_channel_model.update_spectral_efficiency_matrix(sleep_mode_manager)
         
         # 2. Extract current downlink backlog frames for this active simulation interval step
-        # Matrix shape: (num_devices, window_length) -> slicing yields a 1D vector of shape (num_devices,)
         current_queues = traffic_generator.device_downlink_bits_matrix[:, step].copy()
 
         # 3. Calculate explicit bit payload metrics per single physical resource block
-        # 12 subcarriers * 14 symbols * 80% (deducting 20% control channel and reference overhead)
         res_per_prb = int(12 * 14 * 0.80) 
-        
-        # Calculate individual PRB capacity array. Shape: (num_sectors, num_devices)
         bits_per_prb_matrix = radio_channel_model.spectral_efficiency_matrix * res_per_prb
 
         # 4. Generate the QAPF tracking metrics array: (R_prb / T_historical) * Queue^alpha
@@ -45,11 +41,14 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
         pf_base_metric = bits_per_prb_matrix / historical_throughput_flat[np.newaxis, :]
         qapf_metric_matrix = pf_base_metric * (current_queues[np.newaxis, :] ** self.alpha)
 
-        # 5. Determine total physical resource blocks structurally available per sector bandwidth allocation
-        # Standard configuration maps 1 MHz to roughly 5 PRBs (e.g., 20 MHz -> 100 PRBs available)
-        total_prbs_per_sector = np.zeros((self.num_sectors, 1), dtype=np.float32)
+        # 5. Determine total physical resource blocks structurally available per sector bandwidth allocation (1D array)
+        total_prbs_per_sector = np.zeros((self.num_sectors,), dtype=np.float32)
         for sector_idx in range(self.num_sectors):
-            total_prbs_per_sector[sector_idx] = radio_channel_model._get_3gpp_prbs(sector_manager.center_freq_ghz_matrix[sector_idx], sector_manager.sector_numerology_matrix[sector_idx], sector_manager.bandwidth_mhz_matrix[sector_idx])
+            total_prbs_per_sector[sector_idx] = radio_channel_model._get_3gpp_prbs(
+                sector_manager.center_freq_ghz_matrix[sector_idx], 
+                sector_manager.sector_numerology_matrix[sector_idx], 
+                sector_manager.bandwidth_mhz_matrix[sector_idx]
+            )
 
         # Output generation matrices
         prb_allocation_matrix = np.zeros((self.num_sectors, self.num_devices), dtype=np.int32)
@@ -68,7 +67,7 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
 
             attached_device_indices = np.where(associated_device_mask)[0]
 
-            # stronger fairness: give one PRB to each attached device first (if they have queue and any positive rate)
+            # Stronger fairness: give one PRB to each attached device first (if they have queue and any positive rate)
             for dev_idx in attached_device_indices:
                 if max_available_prbs <= 0:
                     break
@@ -116,27 +115,37 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
                 transmitted_bits = min(max_bits_capacity, queue_remaining)
                 
                 actual_transmitted_bits_matrix[sector_idx, dev_idx] += transmitted_bits
-
                 current_queues[dev_idx] -= transmitted_bits
 
+        # Perform the actual subtraction from the traffic generator (safeguarding against negative values)
         total_tx_bits_per_device = np.sum(actual_transmitted_bits_matrix, axis=0)
-        traffic_generator.device_downlink_bits_matrix[:, step] -= total_tx_bits_per_device
+        traffic_generator.device_downlink_bits_matrix[:, step] = np.maximum(
+            0.0, 
+            traffic_generator.device_downlink_bits_matrix[:, step] - total_tx_bits_per_device
+        )
 
+        # Update historical throughput matrix
         self.historical_throughput_matrix *= self.ema_beta
         self.historical_throughput_matrix[:, 0] += (1 - self.ema_beta) * total_tx_bits_per_device
         self.historical_throughput_matrix = np.maximum(self.historical_throughput_matrix, 1e-3)
 
-        allocated_prbs_per_sector = np.sum(prb_allocation_matrix, axis=1)
+        # 7. Safe 1D PRB Utilization update
+        allocated_prbs_per_sector = np.sum(prb_allocation_matrix, axis=1)  # Keeps it 1D (shape: (num_sectors,))
         
-        safe_total_prbs = np.where(total_prbs_per_sector == 0, 1, total_prbs_per_sector)
-        
-        sector_manager.sector_physical_resource_block_utilization = np.maximum(0.05, (allocated_prbs_per_sector / safe_total_prbs)).astype(np.float32)
+        # Calculate utilization safely, avoiding division by zero if total_prbs_per_sector is 0
+        with np.errstate(divide='ignore', invalid='ignore'):
+            utilization = np.where(
+                total_prbs_per_sector > 0, 
+                allocated_prbs_per_sector / total_prbs_per_sector, 
+                0.05
+            )
+            
+        sector_manager.sector_physical_resource_block_utilization = np.maximum(0.05, utilization).astype(np.float32)
         sector_manager.sector_physical_resource_block_utilization[sleep_mode_manager.get_sector_sleep_mode_indices()] = 0.01
 
         device_manager.device_physical_resource_block_allocation_vector = np.sum(prb_allocation_matrix, axis=0).astype(np.int16)
 
-        total_tx_bits_per_device = np.sum(actual_transmitted_bits_matrix, axis=0)
-        leftover_backlog = current_queues  # Because you subtracted transmitted bits from current_queues during the allocation loops
+        leftover_backlog = current_queues
 
         # Carry any unserved bits forward to the next millisecond step index
         if step + 1 < traffic_generator.window_length:

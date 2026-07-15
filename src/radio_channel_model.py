@@ -117,6 +117,7 @@ class RadioChannelModel:
         self.received_power_dbm_matrix_per_resource_element = sector_manager.tx_power_dbm_matrix[:, np.newaxis] - self.path_loss_matrix + self.directional_gain_matrix - num_subcarriers
 
     def update_sinr_dbm_matrix_per_slot(self, sector_manager: SectorManager):
+        #print(sector_manager.sector_physical_resource_block_utilization)
         load_calculation_matrix: np.ndarray = self.rng.binomial(
             n=1,
             p=sector_manager.sector_physical_resource_block_utilization[:, np.newaxis],
