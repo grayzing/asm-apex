@@ -15,7 +15,7 @@ class TrafficGenerator(ABC):
 class BurstyTrafficGenerator(TrafficGenerator):
     def __init__(self, num_devices, window_length, 
                  on_shape=2.5, off_shape=1.5, 
-                 high_rate=1e6, low_rate=1e3, seed=24):
+                 high_rate=5e6, low_rate=0, seed=24):
         super().__init__(num_devices, window_length, seed)
         self.on_shape = on_shape
         self.off_shape = off_shape

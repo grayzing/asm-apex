@@ -20,6 +20,7 @@ class RadioChannelModel:
         self.spectral_efficiency_matrix: np.ndarray = np.zeros((num_sectors, num_devices), dtype=np.float32)
 
         self.rng = np.random.default_rng(seed)
+
         self._3gpp_prb_table = {
             'FR1': {
                 15: {5: 25, 10: 52, 15: 79, 20: 106, 25: 133, 30: 160, 40: 216, 50: 270},
@@ -112,8 +113,8 @@ class RadioChannelModel:
     def update_received_power_matrix_per_resource_element(self, sector_manager: SectorManager):
         num_subcarriers = np.zeros((self.num_sectors, 1), dtype=np.float32)
         for sector_idx in range(self.num_sectors):
-            num_subcarriers[sector_idx] = self._get_3gpp_prbs(sector_manager.center_freq_ghz_matrix[sector_idx], sector_manager.sector_numerology_matrix[sector_idx], sector_manager.bandwidth_mhz_matrix[sector_idx])
-        self.received_power_dbm_matrix_per_resource_element = sector_manager.tx_power_dbm_matrix[:, np.newaxis] - self.path_loss_matrix + self.directional_gain_matrix - 10 * np.log10(12 * num_subcarriers)
+            num_subcarriers[sector_idx] = 10*np.log10(12 * self._get_3gpp_prbs(sector_manager.center_freq_ghz_matrix[sector_idx], sector_manager.sector_numerology_matrix[sector_idx], sector_manager.bandwidth_mhz_matrix[sector_idx]))
+        self.received_power_dbm_matrix_per_resource_element = sector_manager.tx_power_dbm_matrix[:, np.newaxis] - self.path_loss_matrix + self.directional_gain_matrix - num_subcarriers
 
     def update_sinr_dbm_matrix_per_slot(self, sector_manager: SectorManager):
         load_calculation_matrix: np.ndarray = self.rng.binomial(
