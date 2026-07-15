@@ -20,6 +20,31 @@ class RadioChannelModel:
         self.spectral_efficiency_matrix: np.ndarray = np.zeros((num_sectors, num_devices), dtype=np.float32)
 
         self.rng = np.random.default_rng(seed)
+        self._3gpp_prb_table = {
+            'FR1': {
+                15: {5: 25, 10: 52, 15: 79, 20: 106, 25: 133, 30: 160, 40: 216, 50: 270},
+                30: {5: 11, 10: 24, 15: 38, 20: 51, 25: 65, 30: 78, 40: 106, 50: 133, 60: 162, 70: 189, 80: 217, 90: 245, 100: 273},
+                60: {10: 11, 15: 18, 20: 24, 25: 31, 30: 38, 40: 51, 50: 65, 60: 79, 70: 93, 80: 107, 90: 121, 100: 135}
+            },
+            'FR2': {
+                60:  {50: 66, 100: 132, 200: 264},
+                120: {50: 32, 100: 66,  200: 132, 400: 264}
+            }
+        }
+
+    def _get_3gpp_prbs(self, center_freq_ghz: float, numerology: int, bandwidth_mhz: float) -> int:
+        fr = 'FR2' if center_freq_ghz > 24.0 else 'FR1'
+        scs = 15 * (2 ** numerology)
+        bw = int(round(bandwidth_mhz))
+        
+        try:
+            return self._3gpp_prb_table[fr][scs][bw]
+        except KeyError:
+            # Fallback warning if a non-standard or unlisted 3GPP configuration occurs
+            import warnings
+            fallback_prb = int(bandwidth_mhz * 5)
+            warnings.warn(f"Config combination (FR: {fr}, SCS: {scs}kHz, BW: {bw}MHz) not found in 3GPP spec tables. Falling back to linear calculation ({fallback_prb} PRBs).")
+            return fallback_prb
 
     def update_spectral_efficiency_matrix(self, sleep_mode_manager: SleepModeManager) -> np.ndarray:
         sinr_thresholds = np.array([-6.0, -4.0, -2.0, 1.0, 3.0, 5.5, 8.0, 11.0, 13.0, 16.0, 18.0, 21.0, 23.0, 26.0, 29.0])
@@ -85,7 +110,10 @@ class RadioChannelModel:
         ) 
 
     def update_received_power_matrix_per_resource_element(self, sector_manager: SectorManager):
-        self.received_power_dbm_matrix_per_resource_element = sector_manager.tx_power_dbm_matrix[:, np.newaxis] - self.path_loss_matrix + self.directional_gain_matrix - 10 * np.log10(288)
+        num_subcarriers = np.zeros((self.num_sectors, 1), dtype=np.float32)
+        for sector_idx in range(self.num_sectors):
+            num_subcarriers[sector_idx] = self._get_3gpp_prbs(sector_manager.center_freq_ghz_matrix[sector_idx], sector_manager.sector_numerology_matrix[sector_idx], sector_manager.bandwidth_mhz_matrix[sector_idx])
+        self.received_power_dbm_matrix_per_resource_element = sector_manager.tx_power_dbm_matrix[:, np.newaxis] - self.path_loss_matrix + self.directional_gain_matrix - 10 * np.log10(12 * num_subcarriers)
 
     def update_sinr_dbm_matrix_per_slot(self, sector_manager: SectorManager):
         load_calculation_matrix: np.ndarray = self.rng.binomial(
