@@ -49,7 +49,7 @@ class QueueAwareProportionalFairPhysicalResourceBlockScheduler(PhysicalResourceB
         # Standard configuration maps 1 MHz to roughly 5 PRBs (e.g., 20 MHz -> 100 PRBs available)
         total_prbs_per_sector = np.zeros((self.num_sectors, 1), dtype=np.float32)
         for sector_idx in range(self.num_sectors):
-            total_prbs_per_sector[sector_idx] = self._get_3gpp_prbs(sector_manager.center_freq_ghz_matrix[sector_idx], sector_manager.sector_numerology_matrix[sector_idx], sector_manager.bandwidth_mhz_matrix[sector_idx])
+            total_prbs_per_sector[sector_idx] = radio_channel_model._get_3gpp_prbs(sector_manager.center_freq_ghz_matrix[sector_idx], sector_manager.sector_numerology_matrix[sector_idx], sector_manager.bandwidth_mhz_matrix[sector_idx])
 
         # Output generation matrices
         prb_allocation_matrix = np.zeros((self.num_sectors, self.num_devices), dtype=np.int32)
