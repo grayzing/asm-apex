@@ -89,6 +89,115 @@ class NormalSimulator(BaseSimulator):
     def sleep_xapp(self, curr_step):
         pass  # Baseline without sleeping
 
+class ITQoSLBSleepSimulator(BaseSimulator):
+    def __init__(self, *args, alpha_u: float = 0.7, beta: float = 0.7, rsrp_threshold_dbm: float = -90.0, **kwargs):
+        """
+        Iterative QoS-Aware Load-Based (IT-QOS-LB) Sleep Mode Simulator.
+        
+        Args:
+            alpha_u (float): Throughput satisfaction parameter (GBR fraction of All On rate)[cite: 9].
+            beta (float): Minimum service reliability parameter (QoS threshold ratio)[cite: 9].
+            rsrp_threshold_dbm (float): RSRP threshold to consider a UE within a sector's coverage.
+        """
+        super().__init__(*args, **kwargs)
+        self.alpha_u = alpha_u
+        self.beta = beta
+        self.rsrp_threshold_dbm = rsrp_threshold_dbm
+        
+        # Keep track of the baseline "All On" throughputs for QoS evaluation[cite: 9]
+        self.all_on_throughputs = None
+
+    def _compute_qos_satisfaction_ratio(self, current_throughputs: np.ndarray) -> float:
+        """
+        Calculates the fraction of UEs satisfying their GBR constraint (Eq. 13 & 14)[cite: 9].
+        """
+        if self.all_on_throughputs is None:
+            # Fallback if baseline is not established
+            return 1.0
+        
+        # Identify satisfied UEs: achieved rate under SM >= alpha_u * All On rate[cite: 9]
+        satisfied_ue_mask = current_throughputs >= (self.alpha_u * self.all_on_throughputs)
+        qos_satisfied_ratio = np.sum(satisfied_ue_mask) / self.num_devices
+        return qos_satisfied_ratio
+
+    def sleep_xapp(self, curr_step: int):
+        """
+        Executes the Iterative QoS-Aware Load-Based SMO Strategy (Algorithm 1)[cite: 9].
+        """
+        # --- Step 0: Establish "All On" reference rates if not done already ---
+        # Note: In a real run, this evaluates baseline capacity. We can estimate or track it.
+        if self.all_on_throughputs is None:
+            # Estimate using the current step throughput as baseline if no All-On step is recorded
+            self.all_on_throughputs = self.kpi_handler.calculate_throughput_mbps(curr_step)
+            
+        # Get active/serving connections (u_ij)
+        # Association matrix shape: (num_sectors, num_devices). 1 if served, 0 otherwise.
+        u_matrix = (self.handover_manager.sector_device_association_matrix == 1).astype(np.float32)
+        
+        # Determine coverage footprint (s_ij) based on RSRP threshold (excluding serving sector)
+        rsrp_matrix = self.radio_channel_model.received_power_dbm_matrix_per_resource_element
+        coverage_matrix = (rsrp_matrix >= self.rsrp_threshold_dbm).astype(np.float32)
+        
+        # s_ij is 1 if in coverage but NOT served[cite: 9]
+        s_matrix = np.clip(coverage_matrix - u_matrix, 0, 1)
+        
+        # --- Step 1: Compute UE-centric load contribution (Eq. 16) ---
+        # Sum of u_ij + s_ij per UE across all sectors[cite: 9]
+        num_covering_sectors = np.sum(u_matrix + s_matrix, axis=0) 
+        
+        # Avoid division by zero for unserved/out-of-range UEs
+        with np.errstate(divide='ignore', invalid='ignore'):
+            l_ue = np.where(num_covering_sectors > 0, 1.0 / num_covering_sectors, 0.0)
+            
+        # --- Step 2: Compute overall Sector Loads (Eq. 17) ---
+        # Sum of load contributions from primarily associated UEs[cite: 9]
+        sector_loads = np.sum(u_matrix * l_ue[np.newaxis, :], axis=1)
+        
+        # Only target active sectors for sleep optimization
+        active_sectors = np.where(self.sleep_mode_manager.sector_sleep_mode_matrix == 0)[0]
+        if len(active_sectors) == 0:
+            return
+            
+        # Sort candidate active sectors by load in ascending order[cite: 9]
+        sorted_candidates = active_sectors[np.argsort(sector_loads[active_sectors])]
+        
+        # Maintain a rollback backup of sleep states and sector utilization
+        original_sleep_states = self.sleep_mode_manager.sector_sleep_mode_matrix.copy()
+        
+        # --- Step 3: Iteratively deactivate sectors and check QoS (Algorithm 1) ---
+        for sector in sorted_candidates:
+            # Temporarily put the sector to sleep (SM1)[cite: 7, 9]
+            self.sleep_mode_manager.sector_sleep_mode_matrix[sector] = 1
+            
+            # Recalculate immediate channel properties & throughput under the test state
+            # Force Handover to find alternative sectors for affected UEs
+            self.handover_manager.handover(
+                self.sector_manager, self.device_manager, 
+                self.radio_channel_model, self.sleep_mode_manager
+            )
+            
+            # Predict throughput for the current step
+            test_throughputs = self.kpi_handler.calculate_throughput_mbps(curr_step)
+            
+            # Evaluate system-wide QoS metric[cite: 9]
+            psi_qos = self._compute_qos_satisfaction_ratio(test_throughputs)
+            
+            # If the QoS threshold is violated, roll back and stop further deactivations[cite: 9]
+            if psi_qos < self.beta:
+                # Reactivate sector and revert sleep states[cite: 9]
+                self.sleep_mode_manager.sector_sleep_mode_matrix = original_sleep_states.copy()
+                self.handover_manager.handover(
+                    self.sector_manager, self.device_manager, 
+                    self.radio_channel_model, self.sleep_mode_manager
+                )
+                break  # Stop further deactivations[cite: 9]
+            else:
+                # Deactivation is safe, commit and update original backup state
+                original_sleep_states[sector] = 1
+                self.sleep_mode_manager.set_sleep_mode(
+                    sector_id=sector, sleep_mode=1, sector_manager=self.sector_manager
+                )
+
 # --- Batch Execution & Export ---
 def run_experiment(SimulatorClass, method_name, n=20):
     all_data = []
@@ -111,6 +220,7 @@ def run_experiment(SimulatorClass, method_name, n=20):
 methods = {
     "ALL-ON": NormalSimulator, 
     "Liang et al.": EnhancedSleepSimulator, 
+    "IT-QoS-LB": ITQoSLBSleepSimulator,
     "SM1": BasicSleepSimulator, 
     "VDN": VDNSleepSimulator
 }

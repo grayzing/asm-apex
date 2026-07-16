@@ -59,7 +59,7 @@ class HexagonalNetworkTopologyHelperWithRandomDevicePlacements(NetworkTopologyHe
         
         axial_coords = []
         
-        for ring in [1]:
+        for ring in [1,2]:
             q = ring
             r = 0
             for direction in range(6):
